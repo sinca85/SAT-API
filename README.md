@@ -24,6 +24,10 @@ El endpoint inicial de diagnóstico es `GET /health`.
 
 Las credenciales de HighLevel deben guardarse únicamente en `.env` o en el gestor de secretos del hosting. Nunca deben enviarse al frontend.
 
+## Vercel
+
+El proyecto exporta Express como una Vercel Function y conserva `app.listen()` únicamente para desarrollo local. Antes de probar el deployment, cargá en Vercel las variables de `.env.example`, especialmente `MONGODB_URI` y `SESSION_SECRET`.
+
 ## Primer administrador
 
 Configurá `BOOTSTRAP_ADMIN_EMAILS` con uno o más correos de Google separados por comas. Cuando uno de esos correos inicia sesión, se crea o actualiza automáticamente como usuario `active` con rol `admin`.

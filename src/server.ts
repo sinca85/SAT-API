@@ -10,7 +10,11 @@ async function start(): Promise<void> {
   });
 }
 
-start().catch((error) => {
-  console.error("Failed to start SAT API", error);
-  process.exit(1);
-});
+if (!process.env.VERCEL) {
+  start().catch((error) => {
+    console.error("Failed to start SAT API", error);
+    process.exit(1);
+  });
+}
+
+export default app;

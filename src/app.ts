@@ -6,7 +6,7 @@ import MongoStore from "connect-mongo";
 import type { NextFunction, Request, Response } from "express";
 import { passport } from "./auth/passport.js";
 import { env } from "./config/env.js";
-import { mongoStatus } from "./database/mongo.js";
+import { connectToMongo, mongoStatus } from "./database/mongo.js";
 import { adminUsersRouter } from "./routes/admin-users.js";
 import { authRouter } from "./routes/auth.js";
 
@@ -19,6 +19,14 @@ if (env.NODE_ENV === "production") {
 app.use(helmet());
 app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
 app.use(express.json({ limit: "1mb" }));
+app.use(async (_request, _response, next) => {
+  try {
+    await connectToMongo();
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 app.use(
   session({
     name: "sat.sid",
@@ -57,3 +65,5 @@ app.use((error: unknown, _request: Request, response: Response, _next: NextFunct
   console.error(error);
   response.status(500).json({ error: "Internal server error" });
 });
+
+export default app;

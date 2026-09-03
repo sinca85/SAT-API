@@ -1,8 +1,17 @@
 import mongoose from "mongoose";
 import { env } from "../config/env.js";
 
+let connectionPromise: Promise<typeof mongoose> | null = null;
+
 export async function connectToMongo(): Promise<void> {
-  await mongoose.connect(env.MONGODB_URI);
+  if (mongoose.connection.readyState === 1) return;
+
+  connectionPromise ??= mongoose.connect(env.MONGODB_URI).catch((error) => {
+    connectionPromise = null;
+    throw error;
+  });
+
+  await connectionPromise;
 }
 
 export function mongoStatus(): string {
