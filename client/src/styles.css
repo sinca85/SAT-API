@@ -121,6 +121,10 @@ input {
   margin-top: 2px;
 }
 
+.pin-active {
+  color: #ef7d00;
+}
+
 .permissions-select {
   width: 100%;
   min-width: 320px;

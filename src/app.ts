@@ -9,21 +9,39 @@ import { passport } from "./auth/passport.js";
 import { env } from "./config/env.js";
 import { connectToMongo, mongoStatus } from "./database/mongo.js";
 import { adminHighLevelRouter } from "./routes/admin-highlevel.js";
+import { adminLeadsRouter } from "./routes/admin-leads.js";
 import { adminUsersRouter } from "./routes/admin-users.js";
 import { authRouter } from "./routes/auth.js";
+import { leadsRouter } from "./routes/leads.js";
 
 export const app = express();
 
 // Vercel's build environment can resolve Helmet through its CommonJS typings,
 // while local NodeNext builds resolve its ESM default export. Normalize both.
-const helmet = (helmetModule.default ?? helmetModule) as unknown as () => RequestHandler;
+const helmet = (helmetModule.default ?? helmetModule) as unknown as (options?: object) => RequestHandler;
+
+function isAllowedOrigin(origin?: string) {
+  if (!origin) return true;
+  if (env.NODE_ENV !== "production" && origin === env.CORS_ORIGIN) return true;
+  try {
+    const { protocol, hostname } = new URL(origin);
+    return protocol === "https:" && (hostname === "seguroatiempo.com" || hostname.endsWith(".seguroatiempo.com"));
+  } catch {
+    return false;
+  }
+}
 
 if (env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
 
-app.use(helmet());
-app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+app.use(cors({
+  origin(origin, callback) {
+    callback(null, isAllowedOrigin(origin) ? origin ?? false : false);
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: "1mb" }));
 app.use(async (_request, _response, next) => {
   try {
@@ -63,6 +81,8 @@ app.get("/health", (_request, response) => {
 });
 
 app.use("/auth", authRouter);
+app.use("/leads", leadsRouter);
+app.use("/admin/leads", adminLeadsRouter);
 app.use("/admin/users", adminUsersRouter);
 app.use("/admin/highlevel", adminHighLevelRouter);
 

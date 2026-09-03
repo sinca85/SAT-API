@@ -11,6 +11,7 @@ Backend central para leads, usuarios, roles e integraciones de Seguro a Tiempo.
 - Roles: `admin` y `user`.
 - Administración de usuarios protegida por rol.
 - Cliente base para la API de HighLevel.
+- Captura de leads del cotizador Hogar y sincronización con HighLevel.
 
 ## Desarrollo
 
@@ -49,3 +50,11 @@ Content-Type: application/json
 - `POST /auth/logout`
 - `GET /admin/users`
 - `PATCH /admin/users/:userId`
+- `POST /leads/home`
+- `GET /admin/leads`
+- `PATCH /admin/leads/:leadId`
+- `POST /admin/leads/:leadId/notes`
+
+## Leads de Hogar
+
+Las solicitudes del cotizador se guardan con el source inmutable `2016_08_allianz_hogar`. La API crea o actualiza el contacto de HighLevel sin reemplazar sus tags existentes. Si se configuran `HIGHLEVEL_PIPELINE_ID` y `HIGHLEVEL_PIPELINE_STAGE_ID`, también crea la oportunidad asociada; sin esos valores, el contacto queda sincronizado y la oportunidad pendiente de configuración.

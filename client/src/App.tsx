@@ -4,6 +4,8 @@ import {
   GoogleOutlined,
   LogoutOutlined,
   ContactsOutlined,
+  PushpinFilled,
+  PushpinOutlined,
   SafetyCertificateOutlined,
   TeamOutlined,
   UserOutlined,
@@ -32,7 +34,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 type UserRole = "admin" | "user";
 type UserStatus = "pending" | "active" | "disabled";
-type View = "users" | "permissions" | "highlevel-contacts";
+type View = "users" | "permissions" | "highlevel-contacts" | "leads";
+type LeadStatus = "new" | "pending_contact" | "contacted" | "follow_up" | "interested" | "quote_sent" | "won" | "not_interested" | "not_qualified" | "unresponsive";
 
 interface SessionUser {
   id: string;
@@ -64,6 +67,28 @@ interface HighLevelContact {
   dateAdded?: string;
   tags?: string[];
 }
+
+interface Lead {
+  _id: string;
+  source: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  status: LeadStatus;
+  pinned: boolean;
+  priority: "low" | "normal" | "high" | "urgent";
+  nextFollowUpAt?: string;
+  createdAt: string;
+  quote: { homeType: string; areaLabel: string; monthlyPrice: number; currency: string };
+  highLevel: { contactId?: string; opportunityId?: string; syncStatus: "pending" | "contact_synced" | "synced" | "failed"; lastError?: string };
+}
+
+const leadStatusOptions = [
+  ["new", "Nuevo"], ["pending_contact", "Por contactar"], ["contacted", "Contactado"],
+  ["follow_up", "Seguimiento"], ["interested", "Interesado"], ["quote_sent", "Propuesta enviada"],
+  ["won", "Ganado"], ["not_interested", "No interesado"], ["not_qualified", "No califica"],
+  ["unresponsive", "Sin respuesta"],
+].map(([value, label]) => ({ value, label }));
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -357,6 +382,49 @@ function HighLevelContacts() {
   );
 }
 
+function LeadsTable() {
+  const { message } = AntApp.useApp();
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const pageSize = 25;
+
+  const loadLeads = useCallback(async (nextPage: number) => {
+    setLoading(true);
+    try {
+      const data = await requestJson<{ leads: Lead[]; total: number }>(`/admin/leads?page=${nextPage}&limit=${pageSize}`);
+      setLeads(data.leads); setTotal(data.total);
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar los leads"); }
+    finally { setLoading(false); }
+  }, [message]);
+
+  useEffect(() => { void loadLeads(page); }, [loadLeads, page]);
+
+  const updateLead = async (leadId: string, input: Partial<Pick<Lead, "status" | "pinned" | "priority">>) => {
+    setUpdatingId(leadId);
+    try {
+      const data = await requestJson<{ lead: Lead }>(`/admin/leads/${leadId}`, { method: "PATCH", body: JSON.stringify(input) });
+      setLeads((current) => current.map((lead) => lead._id === leadId ? data.lead : lead));
+      message.success("Lead actualizado");
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo actualizar el lead"); }
+    finally { setUpdatingId(null); }
+  };
+
+  const columns: TableColumnsType<Lead> = [
+    { title: "", key: "pinned", width: 54, align: "center", render: (_, lead) => <Button type="text" aria-label={lead.pinned ? "Quitar destacado" : "Destacar lead"} loading={updatingId === lead._id} icon={lead.pinned ? <PushpinFilled className="pin-active" /> : <PushpinOutlined />} onClick={() => void updateLead(lead._id, { pinned: !lead.pinned })} /> },
+    { title: "Lead", key: "lead", render: (_, lead) => <div><Typography.Text strong>{lead.fullName}</Typography.Text><Typography.Text type="secondary" className="block-text">{lead.email} · {lead.phone}</Typography.Text></div> },
+    { title: "Cotización", key: "quote", render: (_, lead) => <div><Typography.Text>{lead.quote.homeType} · {lead.quote.areaLabel}</Typography.Text><Typography.Text type="secondary" className="block-text">{new Intl.NumberFormat("es-AR", { style: "currency", currency: lead.quote.currency, maximumFractionDigits: 0 }).format(lead.quote.monthlyPrice)}/mes</Typography.Text></div> },
+    { title: "Source", dataIndex: "source", key: "source", render: (source: string) => <Tag color="blue">{source}</Tag> },
+    { title: "Estado", dataIndex: "status", key: "status", width: 190, render: (status: LeadStatus, lead) => <Select aria-label={`Estado de ${lead.fullName}`} value={status} disabled={updatingId === lead._id} options={leadStatusOptions} onChange={(value: LeadStatus) => void updateLead(lead._id, { status: value })} /> },
+    { title: "HighLevel", key: "highlevel", width: 130, render: (_, lead) => <Tag color={lead.highLevel.syncStatus === "synced" || lead.highLevel.syncStatus === "contact_synced" ? "success" : lead.highLevel.syncStatus === "failed" ? "error" : "warning"}>{lead.highLevel.syncStatus === "synced" ? "Sincronizado" : lead.highLevel.syncStatus === "contact_synced" ? "Contacto creado" : lead.highLevel.syncStatus === "failed" ? "Con error" : "Pendiente"}</Tag> },
+    { title: "Ingreso", dataIndex: "createdAt", key: "createdAt", width: 170, render: (date: string) => new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(date)) },
+  ];
+
+  return <Table rowKey="_id" columns={columns} dataSource={leads} loading={loading} scroll={{ x: 1200 }} pagination={{ current: page, pageSize, total, showSizeChanger: false, onChange: setPage, showTotal: (count) => `${count} leads` }} locale={{ emptyText: <Empty description="Todavía no hay leads" /> }} />;
+}
+
 function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   const { message } = AntApp.useApp();
   const [view, setView] = useState<View>("users");
@@ -416,6 +484,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <img className="brand-logo" src="/sat-logo-full-blanco.svg" alt="Seguro a Tiempo" />
         <nav aria-label="Navegación principal">
           <Space>
+            <Button type="text" className="header-menu-button" icon={<ContactsOutlined />} onClick={() => setView("leads")}>Leads</Button>
             <Dropdown
               menu={{ items: userMenu, onClick: ({ key }) => setView(key as View) }}
               trigger={["click"]}
@@ -446,14 +515,16 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <Flex justify="space-between" align="center" gap={16} wrap="wrap" className="page-heading">
           <div>
             <Typography.Title level={2}>
-              {view === "users" ? "Usuarios" : view === "permissions" ? "Permisos" : "Contactos de HighLevel"}
+              {view === "users" ? "Usuarios" : view === "permissions" ? "Permisos" : view === "leads" ? "Leads" : "Contactos de HighLevel"}
             </Typography.Title>
             <Typography.Text type="secondary">
               {view === "users"
                 ? "Administrá quién puede ingresar al sistema y su nivel de acceso."
                 : view === "permissions"
                   ? "Asigná permisos específicos como etiquetas a cada usuario."
-                  : "Contactos sincronizados desde la subcuenta de Seguro a Tiempo."}
+                  : view === "leads"
+                    ? "Solicitudes recibidas desde los cotizadores y su estado de sincronización."
+                    : "Contactos sincronizados desde la subcuenta de Seguro a Tiempo."}
             </Typography.Text>
           </div>
           {view === "users" && (
@@ -468,6 +539,8 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
             <UsersTable users={users} loading={loading} onUpdate={updateUser} />
           ) : view === "permissions" ? (
             <PermissionsTable users={users} loading={loading} onUpdate={updateUser} />
+          ) : view === "leads" ? (
+            <LeadsTable />
           ) : (
             <HighLevelContacts />
           )}

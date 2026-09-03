@@ -21,6 +21,8 @@ const envSchema = z.object({
   BOOTSTRAP_ADMIN_EMAILS: z.string().default(""),
   HIGHLEVEL_LOCATION_ID: z.string().optional(),
   HIGHLEVEL_PRIVATE_INTEGRATION_TOKEN: z.string().optional(),
+  HIGHLEVEL_PIPELINE_ID: z.string().optional(),
+  HIGHLEVEL_PIPELINE_STAGE_ID: z.string().optional(),
   HIGHLEVEL_CLIENT_ID: z.string().optional(),
   HIGHLEVEL_CLIENT_SECRET: z.string().optional(),
 });
