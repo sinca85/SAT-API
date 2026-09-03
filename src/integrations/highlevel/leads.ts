@@ -25,13 +25,12 @@ const HOME_PIPELINE_STAGE_NAME = "A contactar";
 let cachedHomeStageId: string | undefined;
 
 async function getHomePipelineStageId() {
-  if (env.HIGHLEVEL_PIPELINE_STAGE_ID) return env.HIGHLEVEL_PIPELINE_STAGE_ID;
   if (cachedHomeStageId) return cachedHomeStageId;
 
   const data = await highLevelClient.request<PipelinesResponse>(
     `/opportunities/pipelines?locationId=${encodeURIComponent(env.HIGHLEVEL_LOCATION_ID!)}`,
   );
-  const pipeline = data.pipelines?.find(({ id }) => id === (env.HIGHLEVEL_PIPELINE_ID || HOME_PIPELINE_ID));
+  const pipeline = data.pipelines?.find(({ id }) => id === HOME_PIPELINE_ID);
   const stage = pipeline?.stages?.find(({ name }) => name.trim().toLocaleLowerCase("es") === HOME_PIPELINE_STAGE_NAME.toLocaleLowerCase("es"));
   if (!stage) throw new Error(`HighLevel stage "${HOME_PIPELINE_STAGE_NAME}" was not found`);
   cachedHomeStageId = stage.id;
@@ -73,14 +72,13 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
   lead.highLevel!.lastSyncedAt = new Date();
   lead.highLevel!.lastError = undefined;
 
-  const pipelineId = env.HIGHLEVEL_PIPELINE_ID || HOME_PIPELINE_ID;
   const pipelineStageId = await getHomePipelineStageId();
-  if (pipelineId && pipelineStageId) {
+  if (pipelineStageId) {
     const opportunityData = await highLevelClient.request<CreateOpportunityResponse>("/opportunities/", {
       method: "POST",
       headers: { "Content-Type": "application/json", Version: "2021-07-28" },
       body: JSON.stringify({
-        pipelineId,
+        pipelineId: HOME_PIPELINE_ID,
         pipelineStageId,
         locationId: env.HIGHLEVEL_LOCATION_ID,
         name: `${lead.fullName} · Seguro de Hogar`,
