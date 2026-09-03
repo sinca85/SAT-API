@@ -71,7 +71,17 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 function LoginScreen() {
   return (
     <main className="centered-page">
-      <Button type="primary" size="large" icon={<GoogleOutlined />} href="/auth/google">
+      <Button
+        type="primary"
+        size="large"
+        className="google-login-button"
+        icon={
+          <span className="google-logo" aria-hidden="true">
+            <GoogleOutlined />
+          </span>
+        }
+        href="/auth/google"
+      >
         Continuar con Google
       </Button>
     </main>
