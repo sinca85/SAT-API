@@ -3,6 +3,7 @@ import {
   DownOutlined,
   GoogleOutlined,
   LogoutOutlined,
+  ContactsOutlined,
   SafetyCertificateOutlined,
   TeamOutlined,
   UserOutlined,
@@ -31,7 +32,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 type UserRole = "admin" | "user";
 type UserStatus = "pending" | "active" | "disabled";
-type View = "users" | "permissions";
+type View = "users" | "permissions" | "highlevel-contacts";
 
 interface SessionUser {
   id: string;
@@ -51,6 +52,17 @@ interface AdminUser {
   permissions: string[];
   lastLoginAt?: string;
   createdAt: string;
+}
+
+interface HighLevelContact {
+  id: string;
+  contactName?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  dateAdded?: string;
+  tags?: string[];
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -266,6 +278,85 @@ function PermissionsTable({
   );
 }
 
+function HighLevelContacts() {
+  const { message } = AntApp.useApp();
+  const [contacts, setContacts] = useState<HighLevelContact[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 25;
+
+  const loadContacts = useCallback(async (nextPage: number) => {
+    setLoading(true);
+    try {
+      const data = await requestJson<{
+        contacts: HighLevelContact[];
+        total: number;
+      }>(`/admin/highlevel/contacts?page=${nextPage}&limit=${pageSize}`);
+      setContacts(data.contacts);
+      setTotal(data.total);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "No se pudieron cargar los contactos");
+    } finally {
+      setLoading(false);
+    }
+  }, [message]);
+
+  useEffect(() => {
+    void loadContacts(page);
+  }, [loadContacts, page]);
+
+  const columns: TableColumnsType<HighLevelContact> = [
+    {
+      title: "Contacto",
+      key: "contact",
+      render: (_, contact) => {
+        const fullName = contact.contactName || [contact.firstName, contact.lastName].filter(Boolean).join(" ") || "Sin nombre";
+        return (
+          <Space>
+            <Avatar icon={<UserOutlined />}>{fullName.slice(0, 1).toUpperCase()}</Avatar>
+            <Typography.Text strong>{fullName}</Typography.Text>
+          </Space>
+        );
+      },
+    },
+    { title: "Email", dataIndex: "email", key: "email", render: (email?: string) => email || "—" },
+    { title: "Teléfono", dataIndex: "phone", key: "phone", render: (phone?: string) => phone || "—" },
+    {
+      title: "Etiquetas",
+      dataIndex: "tags",
+      key: "tags",
+      render: (tags?: string[]) => tags?.length ? <Space size={[0, 6]} wrap>{tags.map((tag) => <Tag key={tag}>{tag}</Tag>)}</Space> : "—",
+    },
+    {
+      title: "Creado",
+      dataIndex: "dateAdded",
+      key: "dateAdded",
+      width: 170,
+      render: (date?: string) => date ? new Intl.DateTimeFormat("es-AR", { dateStyle: "medium" }).format(new Date(date)) : "—",
+    },
+  ];
+
+  return (
+    <Table
+      rowKey="id"
+      columns={columns}
+      dataSource={contacts}
+      loading={loading}
+      scroll={{ x: 880 }}
+      pagination={{
+        current: page,
+        pageSize,
+        total,
+        showSizeChanger: false,
+        onChange: setPage,
+        showTotal: (count) => `${count} contactos`,
+      }}
+      locale={{ emptyText: <Empty description="No se encontraron contactos en HighLevel" /> }}
+    />
+  );
+}
+
 function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   const { message } = AntApp.useApp();
   const [view, setView] = useState<View>("users");
@@ -307,6 +398,13 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
     [],
   );
 
+  const highLevelMenu = useMemo<MenuProps["items"]>(
+    () => [
+      { key: "highlevel-contacts", label: "Contactos", icon: <ContactsOutlined /> },
+    ],
+    [],
+  );
+
   const logout = async () => {
     await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
     window.location.assign("/");
@@ -317,14 +415,24 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
       <Layout.Header className="admin-header">
         <Typography.Text className="brand">Seguro a Tiempo</Typography.Text>
         <nav aria-label="Navegación principal">
-          <Dropdown
-            menu={{ items: userMenu, onClick: ({ key }) => setView(key as View) }}
-            trigger={["click"]}
-          >
-            <Button type="text" className="header-menu-button" icon={<TeamOutlined />}>
-              Usuarios <DownOutlined />
-            </Button>
-          </Dropdown>
+          <Space>
+            <Dropdown
+              menu={{ items: userMenu, onClick: ({ key }) => setView(key as View) }}
+              trigger={["click"]}
+            >
+              <Button type="text" className="header-menu-button" icon={<TeamOutlined />}>
+                Usuarios <DownOutlined />
+              </Button>
+            </Dropdown>
+            <Dropdown
+              menu={{ items: highLevelMenu, onClick: ({ key }) => setView(key as View) }}
+              trigger={["click"]}
+            >
+              <Button type="text" className="header-menu-button" icon={<ContactsOutlined />}>
+                HighLevel <DownOutlined />
+              </Button>
+            </Dropdown>
+          </Space>
         </nav>
         <Space className="account-actions">
           <Typography.Text className="account-name">{sessionUser.name}</Typography.Text>
@@ -337,11 +445,15 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
       <Layout.Content className="admin-content">
         <Flex justify="space-between" align="center" gap={16} wrap="wrap" className="page-heading">
           <div>
-            <Typography.Title level={2}>{view === "users" ? "Usuarios" : "Permisos"}</Typography.Title>
+            <Typography.Title level={2}>
+              {view === "users" ? "Usuarios" : view === "permissions" ? "Permisos" : "Contactos de HighLevel"}
+            </Typography.Title>
             <Typography.Text type="secondary">
               {view === "users"
                 ? "Administrá quién puede ingresar al sistema y su nivel de acceso."
-                : "Asigná permisos específicos como etiquetas a cada usuario."}
+                : view === "permissions"
+                  ? "Asigná permisos específicos como etiquetas a cada usuario."
+                  : "Contactos sincronizados desde la subcuenta de Seguro a Tiempo."}
             </Typography.Text>
           </div>
           {view === "users" && (
@@ -354,8 +466,10 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <section className="content-card">
           {view === "users" ? (
             <UsersTable users={users} loading={loading} onUpdate={updateUser} />
-          ) : (
+          ) : view === "permissions" ? (
             <PermissionsTable users={users} loading={loading} onUpdate={updateUser} />
+          ) : (
+            <HighLevelContacts />
           )}
         </section>
       </Layout.Content>

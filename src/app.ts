@@ -8,6 +8,7 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { passport } from "./auth/passport.js";
 import { env } from "./config/env.js";
 import { connectToMongo, mongoStatus } from "./database/mongo.js";
+import { adminHighLevelRouter } from "./routes/admin-highlevel.js";
 import { adminUsersRouter } from "./routes/admin-users.js";
 import { authRouter } from "./routes/auth.js";
 
@@ -63,6 +64,7 @@ app.get("/health", (_request, response) => {
 
 app.use("/auth", authRouter);
 app.use("/admin/users", adminUsersRouter);
+app.use("/admin/highlevel", adminHighLevelRouter);
 
 app.use((_request, response) => {
   response.status(404).json({ error: "Not found" });
