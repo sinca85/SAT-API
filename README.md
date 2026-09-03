@@ -57,4 +57,4 @@ Content-Type: application/json
 
 ## Leads de Hogar
 
-Las solicitudes del cotizador se guardan con el source inmutable `2016_08_allianz_hogar`. La API crea o actualiza el contacto de HighLevel sin reemplazar sus tags existentes. Si se configuran `HIGHLEVEL_PIPELINE_ID` y `HIGHLEVEL_PIPELINE_STAGE_ID`, también crea la oportunidad asociada; sin esos valores, el contacto queda sincronizado y la oportunidad pendiente de configuración.
+Las solicitudes del cotizador se guardan con el source inmutable `2016_08_allianz_hogar`. La API crea o actualiza el contacto de HighLevel sin reemplazar sus tags existentes y crea la oportunidad en el pipeline de Ventas, dentro de la etapa `A contactar`. El pipeline de Hogar queda identificado en código; `HIGHLEVEL_PIPELINE_ID` y `HIGHLEVEL_PIPELINE_STAGE_ID` permiten reemplazar esa configuración en otros entornos sin modificar el código.
