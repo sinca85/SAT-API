@@ -1,9 +1,9 @@
 import cors from "cors";
 import express from "express";
 import session from "express-session";
-import helmet from "helmet";
-import MongoStore from "connect-mongo";
-import type { NextFunction, Request, Response } from "express";
+import * as helmetModule from "helmet";
+import { MongoStore } from "connect-mongo";
+import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { passport } from "./auth/passport.js";
 import { env } from "./config/env.js";
 import { connectToMongo, mongoStatus } from "./database/mongo.js";
@@ -11,6 +11,10 @@ import { adminUsersRouter } from "./routes/admin-users.js";
 import { authRouter } from "./routes/auth.js";
 
 export const app = express();
+
+// Vercel's build environment can resolve Helmet through its CommonJS typings,
+// while local NodeNext builds resolve its ESM default export. Normalize both.
+const helmet = (helmetModule.default ?? helmetModule) as unknown as () => RequestHandler;
 
 if (env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
