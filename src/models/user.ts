@@ -21,6 +21,7 @@ const userSchema = new Schema(
     avatarUrl: { type: String },
     role: { type: String, enum: userRoles, default: "user", required: true },
     status: { type: String, enum: userStatuses, default: "pending", required: true },
+    permissions: { type: [String], default: [] },
     lastLoginAt: { type: Date },
   },
   { timestamps: true },

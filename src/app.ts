@@ -3,6 +3,7 @@ import express from "express";
 import session from "express-session";
 import * as helmetModule from "helmet";
 import { MongoStore } from "connect-mongo";
+import path from "node:path";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { passport } from "./auth/passport.js";
 import { env } from "./config/env.js";
@@ -49,47 +50,11 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+const publicDirectory = path.join(process.cwd(), "public");
+app.use(express.static(publicDirectory));
+
 app.get("/", (_request, response) => {
-  response
-    .set("Cache-Control", "no-store")
-    .type("html")
-    .send(`<!doctype html>
-<html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Seguro a Tiempo</title>
-    <style>
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: #ffffff;
-        font-family: Arial, Helvetica, sans-serif;
-      }
-      a {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 48px;
-        padding: 0 24px;
-        border-radius: 8px;
-        background: #f58220;
-        color: #ffffff;
-        font-size: 16px;
-        font-weight: 700;
-        text-decoration: none;
-      }
-      a:hover { background: #dc6e0d; }
-      a:focus-visible { outline: 3px solid #123b69; outline-offset: 3px; }
-    </style>
-  </head>
-  <body>
-    <a href="/auth/google">Continuar con Google</a>
-  </body>
-</html>`);
+  response.set("Cache-Control", "no-store").sendFile(path.join(publicDirectory, "index.html"));
 });
 
 app.get("/health", (_request, response) => {

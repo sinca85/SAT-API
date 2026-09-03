@@ -9,6 +9,7 @@ declare global {
       avatarUrl?: string;
       role: UserRole;
       status: UserStatus;
+      permissions: string[];
     }
   }
 }

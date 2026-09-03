@@ -6,6 +6,7 @@ import { User, userRoles, userStatuses } from "../models/user.js";
 const updateUserSchema = z.object({
   role: z.enum(userRoles).optional(),
   status: z.enum(userStatuses).optional(),
+  permissions: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
 });
 
 export const adminUsersRouter = Router();
@@ -14,7 +15,7 @@ adminUsersRouter.use(requireAuthentication, requireActiveUser, requireRole("admi
 
 adminUsersRouter.get("/", async (_request, response) => {
   const users = await User.find()
-    .select("email name avatarUrl role status lastLoginAt createdAt updatedAt")
+    .select("email name avatarUrl role status permissions lastLoginAt createdAt updatedAt")
     .sort({ createdAt: -1 })
     .lean();
 
@@ -26,7 +27,7 @@ adminUsersRouter.patch("/:userId", async (request, response) => {
   const user = await User.findByIdAndUpdate(request.params.userId, input, {
     new: true,
     runValidators: true,
-  }).select("email name avatarUrl role status lastLoginAt createdAt updatedAt");
+  }).select("email name avatarUrl role status permissions lastLoginAt createdAt updatedAt");
 
   if (!user) {
     response.status(404).json({ error: "User not found" });

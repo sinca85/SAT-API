@@ -15,6 +15,7 @@ function toSessionUser(user: InstanceType<typeof User>): Express.User {
     avatarUrl: user.avatarUrl ?? undefined,
     role: user.role,
     status: user.status,
+    permissions: user.permissions ?? [],
   };
 }
 

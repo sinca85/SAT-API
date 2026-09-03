@@ -1,0 +1,138 @@
+:root {
+  font-family: Inter, Arial, Helvetica, sans-serif;
+  color: #17324d;
+  background: #f4f7fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+a,
+input {
+  font: inherit;
+}
+
+.centered-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #ffffff;
+}
+
+.admin-layout {
+  min-height: 100vh;
+  background: #f4f7fb;
+}
+
+.admin-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: minmax(190px, auto) 1fr auto;
+  align-items: center;
+  gap: 28px;
+  height: 68px;
+  padding: 0 32px;
+  background: #123b69;
+  box-shadow: 0 1px 10px rgb(13 47 82 / 14%);
+}
+
+.brand {
+  color: #ffffff !important;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.header-menu-button,
+.logout-button,
+.account-name {
+  color: #ffffff !important;
+}
+
+.header-menu-button:hover,
+.logout-button:hover {
+  color: #ffffff !important;
+  background: rgb(255 255 255 / 12%) !important;
+}
+
+.account-actions {
+  justify-self: end;
+}
+
+.admin-content {
+  width: min(1180px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 44px 0 64px;
+}
+
+.page-heading {
+  margin-bottom: 24px;
+}
+
+.page-heading h2 {
+  margin: 0 0 4px !important;
+  color: #17324d;
+}
+
+.content-card {
+  overflow: hidden;
+  padding: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 12px 35px rgb(18 59 105 / 7%);
+}
+
+.block-text {
+  display: block;
+  margin-top: 2px;
+}
+
+.permissions-select {
+  width: 100%;
+  min-width: 320px;
+}
+
+@media (max-width: 720px) {
+  .admin-header {
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    padding: 0 16px;
+  }
+
+  .admin-header nav {
+    grid-row: 2;
+  }
+
+  .admin-header {
+    height: auto;
+    min-height: 68px;
+    padding-block: 12px;
+  }
+
+  .account-name {
+    display: none;
+  }
+
+  .admin-content {
+    width: min(100% - 24px, 1180px);
+    padding-top: 28px;
+  }
+
+  .permissions-select {
+    min-width: 260px;
+  }
+}

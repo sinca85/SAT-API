@@ -5,14 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "npm run build:client && tsc",
+    "build:client": "vite build",
     "start": "node dist/server.js",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit && tsc --noEmit -p client/tsconfig.json"
   },
   "engines": {
     "node": "24.x"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.3.4",
+    "antd": "^6.6.2",
     "connect-mongo": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.2",
@@ -22,6 +25,8 @@
     "mongoose": "^9.9.4",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "zod": "^4.1.5"
   },
   "devDependencies": {
@@ -31,7 +36,11 @@
     "@types/node": "^24.3.0",
     "@types/passport": "^1.0.17",
     "@types/passport-google-oauth20": "^2.0.17",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vite": "^8.2.2"
   }
 }
