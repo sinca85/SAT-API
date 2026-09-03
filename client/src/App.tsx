@@ -29,7 +29,6 @@ import {
   type TableColumnsType,
 } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import satLogoWhite from "../../../Recursos/sat-logo-full-blanco.svg";
 
 type UserRole = "admin" | "user";
 type UserStatus = "pending" | "active" | "disabled";
@@ -414,7 +413,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   return (
     <Layout className="admin-layout">
       <Layout.Header className="admin-header">
-        <img className="brand-logo" src={satLogoWhite} alt="Seguro a Tiempo" />
+        <img className="brand-logo" src="/sat-logo-full-blanco.svg" alt="Seguro a Tiempo" />
         <nav aria-label="Navegación principal">
           <Space>
             <Dropdown
