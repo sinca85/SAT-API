@@ -49,6 +49,49 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+app.get("/", (_request, response) => {
+  response
+    .set("Cache-Control", "no-store")
+    .type("html")
+    .send(`<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Seguro a Tiempo</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #ffffff;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+      a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 0 24px;
+        border-radius: 8px;
+        background: #f58220;
+        color: #ffffff;
+        font-size: 16px;
+        font-weight: 700;
+        text-decoration: none;
+      }
+      a:hover { background: #dc6e0d; }
+      a:focus-visible { outline: 3px solid #123b69; outline-offset: 3px; }
+    </style>
+  </head>
+  <body>
+    <a href="/auth/google">Continuar con Google</a>
+  </body>
+</html>`);
+});
+
 app.get("/health", (_request, response) => {
   response.json({ ok: true, service: "sat-api", mongo: mongoStatus() });
 });
