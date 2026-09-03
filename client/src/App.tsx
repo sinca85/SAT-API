@@ -90,6 +90,18 @@ const leadStatusOptions = [
   ["unresponsive", "Sin respuesta"],
 ].map(([value, label]) => ({ value, label }));
 
+const viewPaths: Record<View, string> = {
+  users: "/usuarios",
+  permissions: "/permisos",
+  leads: "/leads",
+  "highlevel-contacts": "/highlevel/contactos",
+};
+
+function viewFromPath(pathname: string): View {
+  const entry = Object.entries(viewPaths).find(([, path]) => path === pathname);
+  return (entry?.[0] as View | undefined) ?? "users";
+}
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     credentials: "same-origin",
@@ -427,7 +439,7 @@ function LeadsTable() {
 
 function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   const { message } = AntApp.useApp();
-  const [view, setView] = useState<View>("users");
+  const [view, setView] = useState<View>(() => viewFromPath(window.location.pathname));
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -446,6 +458,18 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   useEffect(() => {
     void loadUsers();
   }, [loadUsers]);
+
+  useEffect(() => {
+    const onPopState = () => setView(viewFromPath(window.location.pathname));
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const navigate = useCallback((nextView: View) => {
+    const path = viewPaths[nextView];
+    if (window.location.pathname !== path) window.history.pushState({}, "", path);
+    setView(nextView);
+  }, []);
 
   const updateUser = useCallback(
     async (userId: string, input: Partial<Pick<AdminUser, "role" | "status" | "permissions">>) => {
@@ -484,9 +508,9 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <img className="brand-logo" src="/sat-logo-full-blanco.svg" alt="Seguro a Tiempo" />
         <nav aria-label="Navegación principal">
           <Space>
-            <Button type="text" className="header-menu-button" icon={<ContactsOutlined />} onClick={() => setView("leads")}>Leads</Button>
+            <Button type="text" className="header-menu-button" icon={<ContactsOutlined />} onClick={() => navigate("leads")}>Leads</Button>
             <Dropdown
-              menu={{ items: userMenu, onClick: ({ key }) => setView(key as View) }}
+              menu={{ items: userMenu, onClick: ({ key }) => navigate(key as View) }}
               trigger={["click"]}
             >
               <Button type="text" className="header-menu-button" icon={<TeamOutlined />}>
@@ -494,7 +518,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
               </Button>
             </Dropdown>
             <Dropdown
-              menu={{ items: highLevelMenu, onClick: ({ key }) => setView(key as View) }}
+              menu={{ items: highLevelMenu, onClick: ({ key }) => navigate(key as View) }}
               trigger={["click"]}
             >
               <Button type="text" className="header-menu-button" icon={<ContactsOutlined />}>

@@ -72,7 +72,13 @@ app.use(passport.session());
 const publicDirectory = path.join(process.cwd(), "public");
 app.use(express.static(publicDirectory));
 
+const panelRoutes = ["/usuarios", "/permisos", "/leads", "/highlevel/contactos"];
+
 app.get("/", (_request, response) => {
+  response.redirect(302, "/usuarios");
+});
+
+app.get(panelRoutes, (_request, response) => {
   response.set("Cache-Control", "no-store").sendFile(path.join(publicDirectory, "index.html"));
 });
 
