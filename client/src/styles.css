@@ -68,11 +68,12 @@ input {
   box-shadow: 0 1px 10px rgb(13 47 82 / 14%);
 }
 
-.brand {
-  color: #ffffff !important;
-  font-size: 18px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
+.brand-logo {
+  display: block;
+  width: 164px;
+  height: 44px;
+  object-fit: contain;
+  object-position: left center;
 }
 
 .header-menu-button,
@@ -144,6 +145,11 @@ input {
 
   .account-name {
     display: none;
+  }
+
+  .brand-logo {
+    width: 142px;
+    height: 38px;
   }
 
   .admin-content {
