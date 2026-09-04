@@ -77,3 +77,16 @@ adminLeadsRouter.post("/:leadId/notes", async (request, response) => {
   await lead.save();
   response.status(201).json({ lead });
 });
+
+adminLeadsRouter.post("/:leadId/sync-highlevel", async (request, response) => {
+  const lead = await Lead.findById(request.params.leadId);
+  if (!lead) { response.status(404).json({ error: "Lead not found" }); return; }
+  try {
+    await syncLeadToHighLevel(lead);
+  } catch (error) {
+    lead.highLevel!.syncStatus = "failed";
+    lead.highLevel!.lastError = error instanceof Error ? error.message : "Unknown HighLevel error";
+    await lead.save();
+  }
+  response.json({ lead });
+});

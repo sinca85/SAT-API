@@ -15,6 +15,9 @@ import {
   Avatar,
   Button,
   ConfigProvider,
+  Descriptions,
+  Divider,
+  Drawer,
   Dropdown,
   Empty,
   Flex,
@@ -79,7 +82,10 @@ interface Lead {
   priority: "low" | "normal" | "high" | "urgent";
   nextFollowUpAt?: string;
   createdAt: string;
-  quote: { homeType: string; areaLabel: string; monthlyPrice: number; currency: string };
+  personal?: { firstName?: string; lastName?: string; dni?: string; dateOfBirth?: string; address?: string; floor?: string; apartment?: string; postalCode?: string; email?: string; phone?: string };
+  quote: { postalCode: string; homeType: string; floor: string; requestedSquareMeters?: number; quotedSquareMeters?: number; areaLabel: string; monthlyPrice: number; structureCoverage?: number; contentsCoverage?: number; appliancesCoverage?: number; glassCoverage?: number; theftCoverage?: number; waterDamageCoverage?: number; assistanceIncluded?: boolean; currency: string };
+  origin?: { landing?: string; channel?: string; pageUrl?: string; referrer?: string; utmSource?: string; utmMedium?: string; utmCampaign?: string; utmContent?: string; utmTerm?: string };
+  notes?: Array<{ _id: string; text: string; authorName: string; createdAt: string }>;
   highLevel: { contactId?: string; opportunityId?: string; syncStatus: "pending" | "contact_synced" | "synced" | "failed"; lastError?: string };
 }
 
@@ -401,6 +407,8 @@ function LeadsTable() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [syncingLead, setSyncingLead] = useState(false);
   const pageSize = 25;
 
   const loadLeads = useCallback(async (nextPage: number) => {
@@ -434,7 +442,55 @@ function LeadsTable() {
     { title: "Ingreso", dataIndex: "createdAt", key: "createdAt", width: 170, render: (date: string) => new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(date)) },
   ];
 
-  return <Table rowKey="_id" columns={columns} dataSource={leads} loading={loading} scroll={{ x: 1200 }} pagination={{ current: page, pageSize, total, showSizeChanger: false, onChange: setPage, showTotal: (count) => `${count} leads` }} locale={{ emptyText: <Empty description="Todavía no hay leads" /> }} />;
+  const value = (content?: string | number | null) => content === undefined || content === null || content === "" ? "—" : String(content);
+  const money = (amount?: number) => amount === undefined ? "—" : new Intl.NumberFormat("es-AR", { style: "currency", currency: selectedLead?.quote.currency || "ARS", maximumFractionDigits: 0 }).format(amount);
+  const retryHighLevelSync = async () => {
+    if (!selectedLead) return;
+    setSyncingLead(true);
+    try {
+      const data = await requestJson<{ lead: Lead }>(`/admin/leads/${selectedLead._id}/sync-highlevel`, { method: "POST" });
+      setSelectedLead(data.lead);
+      setLeads((current) => current.map((lead) => lead._id === data.lead._id ? data.lead : lead));
+      if (data.lead.highLevel.syncStatus === "failed") message.error("HighLevel rechazó la sincronización. Ya podés ver el motivo completo.");
+      else message.success("Lead sincronizado con HighLevel");
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo reintentar la sincronización"); }
+    finally { setSyncingLead(false); }
+  };
+
+  return <>
+    <Table rowKey="_id" columns={columns} dataSource={leads} loading={loading} scroll={{ x: 1200 }} onRow={(lead) => ({ onClick: (event) => { if ((event.target as HTMLElement).closest("button, .ant-select")) return; setSelectedLead(lead); }, className: "clickable-row" })} pagination={{ current: page, pageSize, total, showSizeChanger: false, onChange: setPage, showTotal: (count) => `${count} leads` }} locale={{ emptyText: <Empty description="Todavía no hay leads" /> }} />
+    <Drawer title="Detalle del lead" width={720} open={Boolean(selectedLead)} onClose={() => setSelectedLead(null)}>
+      {selectedLead && <>
+        {selectedLead.highLevel.lastError && <div className="lead-sync-error"><Typography.Text strong type="danger">Error de sincronización con HighLevel</Typography.Text><Typography.Paragraph copyable>{selectedLead.highLevel.lastError}</Typography.Paragraph><Button danger loading={syncingLead} onClick={() => void retryHighLevelSync()}>Reintentar sincronización</Button></div>}
+        <Typography.Title level={5}>Datos personales</Typography.Title>
+        <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
+          <Descriptions.Item label="Nombre">{value(selectedLead.personal?.firstName || selectedLead.fullName)}</Descriptions.Item><Descriptions.Item label="Apellido">{value(selectedLead.personal?.lastName)}</Descriptions.Item>
+          <Descriptions.Item label="DNI">{value(selectedLead.personal?.dni)}</Descriptions.Item><Descriptions.Item label="Fecha de nacimiento">{value(selectedLead.personal?.dateOfBirth)}</Descriptions.Item>
+          <Descriptions.Item label="Domicilio" span={2}>{value(selectedLead.personal?.address)}</Descriptions.Item><Descriptions.Item label="Piso">{value(selectedLead.personal?.floor || selectedLead.quote.floor)}</Descriptions.Item><Descriptions.Item label="Departamento">{value(selectedLead.personal?.apartment)}</Descriptions.Item>
+          <Descriptions.Item label="Código postal">{value(selectedLead.personal?.postalCode || selectedLead.quote.postalCode)}</Descriptions.Item><Descriptions.Item label="Email">{value(selectedLead.personal?.email || selectedLead.email)}</Descriptions.Item><Descriptions.Item label="Celular" span={2}>{value(selectedLead.personal?.phone || selectedLead.phone)}</Descriptions.Item>
+        </Descriptions>
+        <Divider />
+        <Typography.Title level={5}>Cotización</Typography.Title>
+        <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
+          <Descriptions.Item label="Tipo de vivienda">{value(selectedLead.quote.homeType)}</Descriptions.Item><Descriptions.Item label="Superficie ingresada">{value(selectedLead.quote.requestedSquareMeters ? `${selectedLead.quote.requestedSquareMeters} m²` : selectedLead.quote.areaLabel)}</Descriptions.Item>
+          <Descriptions.Item label="Tramo tarifado">{value(selectedLead.quote.quotedSquareMeters ? `${selectedLead.quote.quotedSquareMeters} m²` : selectedLead.quote.areaLabel)}</Descriptions.Item><Descriptions.Item label="Cuota mensual">{money(selectedLead.quote.monthlyPrice)}</Descriptions.Item>
+          <Descriptions.Item label="Incendio estructura">{money(selectedLead.quote.structureCoverage)}</Descriptions.Item><Descriptions.Item label="Incendio contenido">{money(selectedLead.quote.contentsCoverage)}</Descriptions.Item>
+          <Descriptions.Item label="Electrodomésticos">{money(selectedLead.quote.appliancesCoverage)}</Descriptions.Item><Descriptions.Item label="Cristales">{money(selectedLead.quote.glassCoverage)}</Descriptions.Item>
+          <Descriptions.Item label="Robo de contenido">{money(selectedLead.quote.theftCoverage)}</Descriptions.Item><Descriptions.Item label="Daños por agua">{money(selectedLead.quote.waterDamageCoverage)}</Descriptions.Item>
+          <Descriptions.Item label="Asistencia 24 h" span={2}>{selectedLead.quote.assistanceIncluded === false ? "No incluida" : "Incluida"}</Descriptions.Item>
+        </Descriptions>
+        <Divider />
+        <Typography.Title level={5}>Origen y sincronización</Typography.Title>
+        <Descriptions bordered size="small" column={1}>
+          <Descriptions.Item label="Source">{value(selectedLead.source)}</Descriptions.Item><Descriptions.Item label="Landing">{value(selectedLead.origin?.landing)}</Descriptions.Item><Descriptions.Item label="Campaña UTM">{value(selectedLead.origin?.utmCampaign)}</Descriptions.Item>
+          <Descriptions.Item label="Contacto HighLevel">{value(selectedLead.highLevel.contactId)}</Descriptions.Item><Descriptions.Item label="Oportunidad HighLevel">{value(selectedLead.highLevel.opportunityId)}</Descriptions.Item><Descriptions.Item label="Estado de sincronización">{value(selectedLead.highLevel.syncStatus)}</Descriptions.Item>
+        </Descriptions>
+        <Divider />
+        <Typography.Title level={5}>Notas</Typography.Title>
+        {selectedLead.notes?.length ? selectedLead.notes.map((note) => <div className="lead-note" key={note._id}><Typography.Paragraph>{note.text}</Typography.Paragraph><Typography.Text type="secondary">{note.authorName} · {new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(note.createdAt))}</Typography.Text></div>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Sin notas" />}
+      </>}
+    </Drawer>
+  </>;
 }
 
 function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {

@@ -125,6 +125,33 @@ input {
   color: #ef7d00;
 }
 
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover td {
+  background: #f6f9fd !important;
+}
+
+.lead-sync-error {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid #ffccc7;
+  border-radius: 10px;
+  background: #fff2f0;
+}
+
+.lead-sync-error .ant-typography {
+  margin-bottom: 0;
+}
+
+.lead-note {
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #f6f8fb;
+}
+
 .permissions-select {
   width: 100%;
   min-width: 320px;

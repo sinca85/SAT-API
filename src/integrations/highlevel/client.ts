@@ -19,7 +19,8 @@ export class HighLevelClient {
     });
 
     if (!response.ok) {
-      throw new Error(`HighLevel request failed with status ${response.status}`);
+      const responseBody = (await response.text()).slice(0, 1500);
+      throw new Error(`HighLevel request failed with status ${response.status}${responseBody ? `: ${responseBody}` : ""}`);
     }
 
     return (await response.json()) as T;
