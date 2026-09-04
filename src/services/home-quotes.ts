@@ -1,5 +1,5 @@
 const HOME_QUOTES_TSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSi0Zo1Q5tgsM8njcISKbjwzhkNokFZ49-zShK_0DX-HDaW9OHXVKCdtPfRAYb5rw/pub?gid=1092676322&single=true&output=tsv";
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_TTL_MS = 60 * 1000;
 
 export interface HomeQuote {
   requestedSquareMeters: number;
@@ -68,10 +68,10 @@ export async function getHomeQuote(requestedSquareMeters: number): Promise<HomeQ
   const grid = await getGrid();
   const min = grid.squareMeters[0]!;
   const max = grid.squareMeters.at(-1)!;
-  if (!Number.isInteger(requestedSquareMeters) || requestedSquareMeters < min || requestedSquareMeters > max) {
-    throw new Error(`Square meters must be between ${min} and ${max}`);
+  if (!Number.isInteger(requestedSquareMeters) || !grid.squareMeters.includes(requestedSquareMeters)) {
+    throw new Error(`Square meters must match a spreadsheet option between ${min} and ${max}`);
   }
-  const quotedSquareMeters = grid.squareMeters.find((value) => value >= requestedSquareMeters) ?? max;
+  const quotedSquareMeters = requestedSquareMeters;
   const index = grid.squareMeters.indexOf(quotedSquareMeters);
   const money = (label: string) => parseMoney(findRow(grid, label)[index] ?? "");
   return {

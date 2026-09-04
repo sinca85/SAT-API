@@ -21,7 +21,7 @@ const homeLeadSchema = z.object({
   postalCode: z.string().regex(/^\d{4}$/),
   homeType: z.enum(["Casa", "Departamento", "PH", "Barrio privado"]),
   floor: z.string().trim().min(1).max(40),
-  squareMeters: z.number().int().min(30).max(200),
+  squareMeters: z.number().int().positive(),
   origin: z.object({
     pageUrl: z.string().url().optional(),
     referrer: z.string().max(1000).optional(),
@@ -50,8 +50,12 @@ const homeContractSchema = z.object({
 export const leadsRouter = Router();
 
 leadsRouter.get("/home/quote", async (request, response) => {
-  const squareMeters = z.coerce.number().int().min(30).max(200).parse(request.query.squareMeters);
+  const squareMeters = z.coerce.number().int().positive().parse(request.query.squareMeters);
   response.json({ quote: await getHomeQuote(squareMeters), options: await getHomeQuoteOptions() });
+});
+
+leadsRouter.get("/home/options", async (_request, response) => {
+  response.json({ options: await getHomeQuoteOptions() });
 });
 
 leadsRouter.post("/home", async (request, response) => {
