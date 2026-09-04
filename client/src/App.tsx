@@ -1,5 +1,6 @@
 import {
   CheckCircleOutlined,
+  DeleteOutlined,
   DownOutlined,
   GoogleOutlined,
   LogoutOutlined,
@@ -22,6 +23,7 @@ import {
   Empty,
   Flex,
   Layout,
+  Input,
   Result,
   Select,
   Space,
@@ -400,8 +402,10 @@ function HighLevelContacts() {
   );
 }
 
-function LeadsTable() {
-  const { message } = AntApp.useApp();
+type LeadSortField = "fullName" | "monthlyPrice" | "source" | "status" | "syncStatus" | "createdAt";
+
+function LeadsTable({ isAdmin }: { isAdmin: boolean }) {
+  const { message, modal } = AntApp.useApp();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -409,16 +413,20 @@ function LeadsTable() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [syncingLead, setSyncingLead] = useState(false);
+  const [sortBy, setSortBy] = useState<LeadSortField>("createdAt");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [noteText, setNoteText] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
   const pageSize = 25;
 
   const loadLeads = useCallback(async (nextPage: number) => {
     setLoading(true);
     try {
-      const data = await requestJson<{ leads: Lead[]; total: number }>(`/admin/leads?page=${nextPage}&limit=${pageSize}`);
+      const data = await requestJson<{ leads: Lead[]; total: number }>(`/admin/leads?page=${nextPage}&limit=${pageSize}&sortBy=${sortBy}&sortOrder=${sortOrder}`);
       setLeads(data.leads); setTotal(data.total);
     } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar los leads"); }
     finally { setLoading(false); }
-  }, [message]);
+  }, [message, sortBy, sortOrder]);
 
   useEffect(() => { void loadLeads(page); }, [loadLeads, page]);
 
@@ -434,12 +442,12 @@ function LeadsTable() {
 
   const columns: TableColumnsType<Lead> = [
     { title: "", key: "pinned", width: 54, align: "center", render: (_, lead) => <Button type="text" aria-label={lead.pinned ? "Quitar destacado" : "Destacar lead"} loading={updatingId === lead._id} icon={lead.pinned ? <PushpinFilled className="pin-active" /> : <PushpinOutlined />} onClick={() => void updateLead(lead._id, { pinned: !lead.pinned })} /> },
-    { title: "Lead", key: "lead", render: (_, lead) => <div><Typography.Text strong>{lead.fullName}</Typography.Text><Typography.Text type="secondary" className="block-text">{lead.email} · {lead.phone}</Typography.Text></div> },
-    { title: "Cotización", key: "quote", render: (_, lead) => <div><Typography.Text>{lead.quote.homeType} · {lead.quote.areaLabel}</Typography.Text><Typography.Text type="secondary" className="block-text">{new Intl.NumberFormat("es-AR", { style: "currency", currency: lead.quote.currency, maximumFractionDigits: 0 }).format(lead.quote.monthlyPrice)}/mes</Typography.Text></div> },
-    { title: "Source", dataIndex: "source", key: "source", render: (source: string) => <Tag color="blue">{source}</Tag> },
-    { title: "Estado", dataIndex: "status", key: "status", width: 190, render: (status: LeadStatus, lead) => <Select aria-label={`Estado de ${lead.fullName}`} value={status} disabled={updatingId === lead._id} options={leadStatusOptions} onChange={(value: LeadStatus) => void updateLead(lead._id, { status: value })} /> },
-    { title: "HighLevel", key: "highlevel", width: 130, render: (_, lead) => <Tag color={lead.highLevel.syncStatus === "synced" || lead.highLevel.syncStatus === "contact_synced" ? "success" : lead.highLevel.syncStatus === "failed" ? "error" : "warning"}>{lead.highLevel.syncStatus === "synced" ? "Sincronizado" : lead.highLevel.syncStatus === "contact_synced" ? "Contacto creado" : lead.highLevel.syncStatus === "failed" ? "Con error" : "Pendiente"}</Tag> },
-    { title: "Ingreso", dataIndex: "createdAt", key: "createdAt", width: 170, render: (date: string) => new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(date)) },
+    { title: "Lead", key: "fullName", sorter: true, sortOrder: sortBy === "fullName" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (_, lead) => <div><Typography.Text strong>{lead.fullName}</Typography.Text><Typography.Text type="secondary" className="block-text">{lead.email} · {lead.phone}</Typography.Text></div> },
+    { title: "Cotización", key: "monthlyPrice", sorter: true, sortOrder: sortBy === "monthlyPrice" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (_, lead) => <div><Typography.Text>{lead.quote.homeType} · {lead.quote.areaLabel}</Typography.Text><Typography.Text type="secondary" className="block-text">{new Intl.NumberFormat("es-AR", { style: "currency", currency: lead.quote.currency, maximumFractionDigits: 0 }).format(lead.quote.monthlyPrice)}/mes</Typography.Text></div> },
+    { title: "Source", dataIndex: "source", key: "source", sorter: true, sortOrder: sortBy === "source" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (source: string) => <Tag color="blue">{source}</Tag> },
+    { title: "Estado", dataIndex: "status", key: "status", width: 190, sorter: true, sortOrder: sortBy === "status" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (status: LeadStatus, lead) => <Select aria-label={`Estado de ${lead.fullName}`} value={status} disabled={updatingId === lead._id} options={leadStatusOptions} onChange={(value: LeadStatus) => void updateLead(lead._id, { status: value })} /> },
+    { title: "HighLevel", key: "syncStatus", width: 130, sorter: true, sortOrder: sortBy === "syncStatus" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (_, lead) => <Tag color={lead.highLevel.syncStatus === "synced" || lead.highLevel.syncStatus === "contact_synced" ? "success" : lead.highLevel.syncStatus === "failed" ? "error" : "warning"}>{lead.highLevel.syncStatus === "synced" ? "Sincronizado" : lead.highLevel.syncStatus === "contact_synced" ? "Contacto creado" : lead.highLevel.syncStatus === "failed" ? "Con error" : "Pendiente"}</Tag> },
+    { title: "Ingreso", dataIndex: "createdAt", key: "createdAt", width: 170, sorter: true, sortOrder: sortBy === "createdAt" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (date: string) => new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(date)) },
   ];
 
   const value = (content?: string | number | null) => content === undefined || content === null || content === "" ? "—" : String(content);
@@ -456,10 +464,28 @@ function LeadsTable() {
     } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo reintentar la sincronización"); }
     finally { setSyncingLead(false); }
   };
+  const addNote = async () => {
+    if (!selectedLead || !noteText.trim()) return;
+    setSavingNote(true);
+    try {
+      const data = await requestJson<{ lead: Lead }>(`/admin/leads/${selectedLead._id}/notes`, { method: "POST", body: JSON.stringify({ text: noteText }) });
+      setSelectedLead(data.lead); setLeads((current) => current.map((lead) => lead._id === data.lead._id ? data.lead : lead)); setNoteText(""); message.success("Nota agregada");
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo agregar la nota"); }
+    finally { setSavingNote(false); }
+  };
+  const deleteNote = async (noteId: string) => {
+    if (!selectedLead) return;
+    const data = await requestJson<{ lead: Lead }>(`/admin/leads/${selectedLead._id}/notes/${noteId}`, { method: "DELETE" });
+    setSelectedLead(data.lead); setLeads((current) => current.map((lead) => lead._id === data.lead._id ? data.lead : lead)); message.success("Nota eliminada");
+  };
+  const deleteLead = () => {
+    if (!selectedLead) return;
+    modal.confirm({ title: "Eliminar lead", content: `¿Querés eliminar el registro de ${selectedLead.fullName}? Esta acción no elimina el contacto de HighLevel.`, okText: "Eliminar", cancelText: "Cancelar", okButtonProps: { danger: true }, onOk: async () => { await requestJson(`/admin/leads/${selectedLead._id}`, { method: "DELETE" }); setLeads((current) => current.filter((lead) => lead._id !== selectedLead._id)); setTotal((current) => Math.max(0, current - 1)); setSelectedLead(null); message.success("Lead eliminado"); } });
+  };
 
   return <>
-    <Table rowKey="_id" columns={columns} dataSource={leads} loading={loading} scroll={{ x: 1200 }} onRow={(lead) => ({ onClick: (event) => { if ((event.target as HTMLElement).closest("button, .ant-select")) return; setSelectedLead(lead); }, className: "clickable-row" })} pagination={{ current: page, pageSize, total, showSizeChanger: false, onChange: setPage, showTotal: (count) => `${count} leads` }} locale={{ emptyText: <Empty description="Todavía no hay leads" /> }} />
-    <Drawer title="Detalle del lead" width={720} open={Boolean(selectedLead)} onClose={() => setSelectedLead(null)}>
+    <Table rowKey="_id" columns={columns} dataSource={leads} loading={loading} scroll={{ x: 1200 }} onChange={(_, __, sorter) => { const selected = Array.isArray(sorter) ? sorter[0] : sorter; if (!selected?.order || !selected.columnKey) return; setSortBy(selected.columnKey as LeadSortField); setSortOrder(selected.order === "ascend" ? "asc" : "desc"); setPage(1); }} onRow={(lead) => ({ onClick: (event) => { if ((event.target as HTMLElement).closest("button, .ant-select")) return; setSelectedLead(lead); }, className: "clickable-row" })} pagination={{ current: page, pageSize, total, showSizeChanger: false, onChange: setPage, showTotal: (count) => `${count} leads` }} locale={{ emptyText: <Empty description="Todavía no hay leads" /> }} />
+    <Drawer title="Detalle del lead" width={720} open={Boolean(selectedLead)} onClose={() => setSelectedLead(null)} extra={isAdmin ? <Button danger icon={<DeleteOutlined />} onClick={deleteLead}>Eliminar lead</Button> : undefined}>
       {selectedLead && <>
         {selectedLead.highLevel.lastError && <div className="lead-sync-error"><Typography.Text strong type="danger">Error de sincronización con HighLevel</Typography.Text><Typography.Paragraph copyable>{selectedLead.highLevel.lastError}</Typography.Paragraph><Button danger loading={syncingLead} onClick={() => void retryHighLevelSync()}>Reintentar sincronización</Button></div>}
         <Typography.Title level={5}>Datos personales</Typography.Title>
@@ -487,7 +513,8 @@ function LeadsTable() {
         </Descriptions>
         <Divider />
         <Typography.Title level={5}>Notas</Typography.Title>
-        {selectedLead.notes?.length ? selectedLead.notes.map((note) => <div className="lead-note" key={note._id}><Typography.Paragraph>{note.text}</Typography.Paragraph><Typography.Text type="secondary">{note.authorName} · {new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(note.createdAt))}</Typography.Text></div>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Sin notas" />}
+        <div className="note-composer"><Input.TextArea value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Escribí una nota sobre la gestión..." autoSize={{ minRows: 2, maxRows: 5 }} maxLength={3000} /><Button type="primary" loading={savingNote} disabled={!noteText.trim()} onClick={() => void addNote()}>Agregar nota</Button></div>
+        {selectedLead.notes?.length ? selectedLead.notes.map((note) => <div className="lead-note" key={note._id}><div><Typography.Paragraph>{note.text}</Typography.Paragraph><Typography.Text type="secondary">{note.authorName} · {new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(note.createdAt))}</Typography.Text></div><Button type="text" danger aria-label="Eliminar nota" icon={<DeleteOutlined />} onClick={() => void deleteNote(note._id)} /></div>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Sin notas" />}
       </>}
     </Drawer>
   </>;
@@ -620,7 +647,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
           ) : view === "permissions" ? (
             <PermissionsTable users={users} loading={loading} onUpdate={updateUser} />
           ) : view === "leads" ? (
-            <LeadsTable />
+            <LeadsTable isAdmin={sessionUser.role === "admin"} />
           ) : (
             <HighLevelContacts />
           )}

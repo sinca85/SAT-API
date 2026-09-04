@@ -9,6 +9,8 @@ const listSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
   source: z.string().trim().optional(),
   status: z.enum(leadStatuses).optional(),
+  sortBy: z.enum(["fullName", "monthlyPrice", "source", "status", "syncStatus", "createdAt"]).default("createdAt"),
+  sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
 const updateSchema = z.object({
@@ -34,13 +36,15 @@ const updateSchema = z.object({
 const noteSchema = z.object({ text: z.string().trim().min(1).max(3000) });
 
 export const adminLeadsRouter = Router();
-adminLeadsRouter.use(requireAuthentication, requireActiveUser, requireRole("admin"));
+adminLeadsRouter.use(requireAuthentication, requireActiveUser);
 
 adminLeadsRouter.get("/", async (request, response) => {
-  const { page, limit, source, status } = listSchema.parse(request.query);
+  const { page, limit, source, status, sortBy, sortOrder } = listSchema.parse(request.query);
   const filter = { ...(source ? { source } : {}), ...(status ? { status } : {}) };
+  const sortFields = { fullName: "fullName", monthlyPrice: "quote.monthlyPrice", source: "source", status: "status", syncStatus: "highLevel.syncStatus", createdAt: "createdAt" } as const;
+  const sort = { [sortFields[sortBy]]: sortOrder === "asc" ? 1 : -1 } as Record<string, 1 | -1>;
   const [leads, total] = await Promise.all([
-    Lead.find(filter).sort({ pinned: -1, createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    Lead.find(filter).sort(sort).skip((page - 1) * limit).limit(limit).lean(),
     Lead.countDocuments(filter),
   ]);
   response.json({ leads, total, page, limit });
@@ -76,6 +80,22 @@ adminLeadsRouter.post("/:leadId/notes", async (request, response) => {
   lead.notes.push({ text, authorId: request.user!.id, authorName: request.user!.name, createdAt: new Date() });
   await lead.save();
   response.status(201).json({ lead });
+});
+
+adminLeadsRouter.delete("/:leadId/notes/:noteId", async (request, response) => {
+  const lead = await Lead.findById(request.params.leadId);
+  if (!lead) { response.status(404).json({ error: "Lead not found" }); return; }
+  const note = lead.notes.id(request.params.noteId);
+  if (!note) { response.status(404).json({ error: "Note not found" }); return; }
+  note.deleteOne();
+  await lead.save();
+  response.json({ lead });
+});
+
+adminLeadsRouter.delete("/:leadId", requireRole("admin"), async (request, response) => {
+  const lead = await Lead.findByIdAndDelete(request.params.leadId);
+  if (!lead) { response.status(404).json({ error: "Lead not found" }); return; }
+  response.status(204).end();
 });
 
 adminLeadsRouter.post("/:leadId/sync-highlevel", async (request, response) => {

@@ -56,8 +56,13 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
   const contactFields = await ensureHomeContactFields();
   const customFields = [
     { id: contactFields.dni, fieldValue: lead.personal?.dni || "" },
+    { id: contactFields.fecha_nacimiento, fieldValue: lead.personal?.dateOfBirth || "" },
+    { id: contactFields.domicilio, fieldValue: lead.personal?.address || "" },
     { id: contactFields.piso, fieldValue: lead.personal?.floor || lead.quote!.floor },
     { id: contactFields.departamento, fieldValue: lead.personal?.apartment || "" },
+    { id: contactFields.codigo_postal, fieldValue: lead.personal?.postalCode || lead.quote!.postalCode },
+    { id: contactFields.mail, fieldValue: lead.personal?.email || lead.email || "" },
+    { id: contactFields.celular, fieldValue: lead.personal?.phone || lead.phone || "" },
     { id: contactFields.tipo_vivienda, fieldValue: lead.quote!.homeType },
     { id: contactFields.metros_cuadrados, fieldValue: lead.quote!.areaLabel },
     { id: contactFields.precio_mensual, fieldValue: lead.quote!.monthlyPrice },

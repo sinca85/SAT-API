@@ -148,8 +148,19 @@ input {
 .lead-note {
   margin-bottom: 10px;
   padding: 12px 14px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   border-radius: 8px;
   background: #f6f8fb;
+}
+
+.note-composer {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+  margin-bottom: 18px;
 }
 
 .permissions-select {

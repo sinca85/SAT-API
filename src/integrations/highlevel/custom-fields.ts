@@ -17,8 +17,13 @@ interface CreateCustomFieldResponse {
 
 const requiredContactFields = [
   { key: "dni", name: "DNI", dataType: "TEXT" },
+  { key: "fecha_nacimiento", name: "Fecha de nacimiento", dataType: "TEXT" },
+  { key: "domicilio", name: "Domicilio", dataType: "TEXT" },
   { key: "piso", name: "Piso", dataType: "TEXT" },
   { key: "departamento", name: "Departamento", dataType: "TEXT" },
+  { key: "codigo_postal", name: "Código postal", dataType: "TEXT" },
+  { key: "mail", name: "Mail", dataType: "TEXT" },
+  { key: "celular", name: "Celular", dataType: "TEXT" },
   { key: "tipo_vivienda", name: "Tipo de vivienda", dataType: "TEXT" },
   { key: "metros_cuadrados", name: "Metros cuadrados", dataType: "TEXT" },
   { key: "precio_mensual", name: "Precio mensual cotizado", dataType: "TEXT" },
