@@ -3,16 +3,9 @@ import { Router } from "express";
 import { z } from "zod";
 import { syncLeadToHighLevel } from "../integrations/highlevel/leads.js";
 import { Lead } from "../models/lead.js";
+import { getHomeQuote, getHomeQuoteOptions } from "../services/home-quotes.js";
 
 export const HOME_LEAD_SOURCE = "2016_08_allianz_hogar";
-
-const homeQuotes = {
-  "50": { areaLabel: "hasta 50 m²", monthlyPrice: 18_990, structureCoverage: 75_000_000 },
-  "80": { areaLabel: "51 a 80 m²", monthlyPrice: 24_999, structureCoverage: 105_000_000 },
-  "120": { areaLabel: "81 a 120 m²", monthlyPrice: 30_990, structureCoverage: 150_000_000 },
-  "160": { areaLabel: "121 a 160 m²", monthlyPrice: 37_990, structureCoverage: 200_000_000 },
-  "200": { areaLabel: "más de 160 m²", monthlyPrice: 44_990, structureCoverage: 250_000_000 },
-} as const;
 
 const homeLeadSchema = z.object({
   submissionId: z.string().uuid().optional(),
@@ -22,7 +15,7 @@ const homeLeadSchema = z.object({
   postalCode: z.string().regex(/^\d{4}$/),
   homeType: z.enum(["Casa", "Departamento", "PH", "Barrio privado"]),
   floor: z.string().trim().min(1).max(40),
-  areaCode: z.enum(["50", "80", "120", "160", "200"]),
+  squareMeters: z.number().int().min(30).max(200),
   origin: z.object({
     pageUrl: z.string().url().optional(),
     referrer: z.string().max(1000).optional(),
@@ -36,9 +29,14 @@ const homeLeadSchema = z.object({
 
 export const leadsRouter = Router();
 
+leadsRouter.get("/home/quote", async (request, response) => {
+  const squareMeters = z.coerce.number().int().min(30).max(200).parse(request.query.squareMeters);
+  response.json({ quote: await getHomeQuote(squareMeters), options: await getHomeQuoteOptions() });
+});
+
 leadsRouter.post("/home", async (request, response) => {
   const input = homeLeadSchema.parse(request.body);
-  const quote = homeQuotes[input.areaCode];
+  const quote = await getHomeQuote(input.squareMeters);
   const submissionId = input.submissionId ?? randomUUID();
   const existing = await Lead.findOne({ submissionId });
   if (existing) {
@@ -72,9 +70,8 @@ leadsRouter.post("/home", async (request, response) => {
       postalCode: input.postalCode,
       homeType: input.homeType,
       floor: input.floor,
-      areaCode: input.areaCode,
+      areaCode: String(quote.quotedSquareMeters),
       ...quote,
-      currency: "ARS",
     },
     origin: { landing: "/hogar", channel: "landing", ...input.origin },
     highLevel: { syncStatus: "pending" },
@@ -88,5 +85,5 @@ leadsRouter.post("/home", async (request, response) => {
     await lead.save();
   }
 
-  response.status(201).json({ leadId: lead.id, syncStatus: lead.highLevel!.syncStatus });
+  response.status(201).json({ leadId: lead.id, syncStatus: lead.highLevel!.syncStatus, quote });
 });
