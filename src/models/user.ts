@@ -22,6 +22,7 @@ const userSchema = new Schema(
     role: { type: String, enum: userRoles, default: "user", required: true },
     status: { type: String, enum: userStatuses, default: "pending", required: true },
     permissions: { type: [String], default: [] },
+    roleIds: [{ type: Schema.Types.ObjectId, ref: "Role" }],
     lastLoginAt: { type: Date },
   },
   { timestamps: true },

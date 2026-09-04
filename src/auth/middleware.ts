@@ -37,3 +37,13 @@ export function requireRole(...roles: UserRole[]) {
     next();
   };
 }
+
+export function requirePermission(permission: string) {
+  return (request: Request, response: Response, next: NextFunction): void => {
+    if (!request.user || (!request.user.permissions.includes("*") && !request.user.permissions.includes(permission))) {
+      response.status(403).json({ error: "Insufficient permissions" });
+      return;
+    }
+    next();
+  };
+}

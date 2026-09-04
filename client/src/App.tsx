@@ -16,6 +16,7 @@ import {
   App as AntApp,
   Avatar,
   Button,
+  Checkbox,
   ConfigProvider,
   Descriptions,
   Divider,
@@ -40,7 +41,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 type UserRole = "admin" | "user";
 type UserStatus = "pending" | "active" | "disabled";
-type View = "users" | "permissions" | "highlevel-contacts" | "leads";
+type View = "users" | "roles" | "highlevel-contacts" | "leads";
 type LeadStatus = "new" | "pending_contact" | "contacted" | "follow_up" | "interested" | "quote_sent" | "won" | "not_interested" | "not_qualified" | "unresponsive";
 
 interface SessionUser {
@@ -50,6 +51,7 @@ interface SessionUser {
   role: UserRole;
   status: UserStatus;
   permissions: string[];
+  roles: Array<{ id: string; name: string; slug: string }>;
 }
 
 interface AdminUser {
@@ -59,6 +61,7 @@ interface AdminUser {
   role: UserRole;
   status: UserStatus;
   permissions: string[];
+  roleIds: string[];
   lastLoginAt?: string;
   createdAt: string;
 }
@@ -72,6 +75,15 @@ interface HighLevelContact {
   phone?: string;
   dateAdded?: string;
   tags?: string[];
+}
+
+interface AccessRole {
+  _id: string;
+  name: string;
+  slug: string;
+  description: string;
+  permissions: string[];
+  system: boolean;
 }
 
 interface Lead {
@@ -114,7 +126,7 @@ const leadStatusOptions = [
 
 const viewPaths: Record<View, string> = {
   users: "/usuarios",
-  permissions: "/permisos",
+  roles: "/roles",
   leads: "/leads",
   "highlevel-contacts": "/highlevel/contactos",
 };
@@ -162,18 +174,22 @@ function LoginScreen() {
 
 function UsersTable({
   users,
+  roles,
+  canManage,
   loading,
   onUpdate,
 }: {
   users: AdminUser[];
+  roles: AccessRole[];
+  canManage: boolean;
   loading: boolean;
-  onUpdate: (userId: string, input: Partial<Pick<AdminUser, "role" | "status" | "permissions">>) => Promise<void>;
+  onUpdate: (userId: string, input: Partial<Pick<AdminUser, "status" | "roleIds">>) => Promise<void>;
 }) {
   const { message } = AntApp.useApp();
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const update = useCallback(
-    async (userId: string, input: Partial<Pick<AdminUser, "role" | "status" | "permissions">>) => {
+    async (userId: string, input: Partial<Pick<AdminUser, "status" | "roleIds">>) => {
       setUpdatingId(userId);
       try {
         await onUpdate(userId, input);
@@ -205,20 +221,20 @@ function UsersTable({
       ),
     },
     {
-      title: "Rol",
-      dataIndex: "role",
-      key: "role",
-      width: 160,
-      render: (role: UserRole, user) => (
+      title: "Roles",
+      dataIndex: "roleIds",
+      key: "roleIds",
+      width: 280,
+      render: (roleIds: string[], user) => (
         <Select
-          aria-label={`Rol de ${user.name}`}
-          value={role}
-          disabled={updatingId === user._id}
-          onChange={(value: UserRole) => void update(user._id, { role: value })}
-          options={[
-            { value: "admin", label: "Administrador" },
-            { value: "user", label: "Usuario" },
-          ]}
+          mode="multiple"
+          aria-label={`Roles de ${user.name}`}
+          value={roleIds || []}
+          placeholder="Sin roles asignados"
+          style={{ width: "100%" }}
+          disabled={!canManage || updatingId === user._id}
+          onChange={(values: string[]) => void update(user._id, { roleIds: values })}
+          options={roles.map((role) => ({ value: role._id, label: role.name }))}
         />
       ),
     },
@@ -243,6 +259,7 @@ function UsersTable({
           aria-label={`Habilitar a ${user.name}`}
           checked={user.status === "active"}
           loading={updatingId === user._id}
+          disabled={!canManage}
           onChange={(checked) => void update(user._id, { status: checked ? "active" : "disabled" })}
         />
       ),
@@ -269,73 +286,71 @@ function UsersTable({
   );
 }
 
-function PermissionsTable({
-  users,
-  loading,
-  onUpdate,
-}: {
-  users: AdminUser[];
-  loading: boolean;
-  onUpdate: (userId: string, input: { permissions: string[] }) => Promise<void>;
-}) {
+const permissionOptions = [
+  { value: "leads.view", label: "Ver leads" },
+  { value: "leads.manage", label: "Gestionar y editar leads" },
+  { value: "leads.delete", label: "Eliminar leads" },
+  { value: "users.view", label: "Ver usuarios" },
+  { value: "users.manage", label: "Habilitar usuarios y asignar roles" },
+  { value: "roles.manage", label: "Crear y administrar roles" },
+  { value: "highlevel.contacts.view", label: "Ver contactos de HighLevel" },
+];
+
+function RolesTable({ roles, loading, onReload }: { roles: AccessRole[]; loading: boolean; onReload: () => Promise<void> }) {
   const { message } = AntApp.useApp();
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [creating, setCreating] = useState(false);
 
-  const columns: TableColumnsType<AdminUser> = [
+  const createRole = async () => {
+    if (name.trim().length < 2) { message.error("Ingresá un nombre para el rol"); return; }
+    setCreating(true);
+    try {
+      await requestJson("/admin/roles", { method: "POST", body: JSON.stringify({ name, description, permissions: [] }) });
+      setName(""); setDescription(""); await onReload(); message.success("Rol creado");
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo crear el rol"); }
+    finally { setCreating(false); }
+  };
+
+  const updatePermissions = async (role: AccessRole, permissions: string[]) => {
+    setUpdatingId(role._id);
+    try { await requestJson(`/admin/roles/${role._id}`, { method: "PATCH", body: JSON.stringify({ permissions }) }); await onReload(); message.success("Rol actualizado"); }
+    catch (error) { message.error(error instanceof Error ? error.message : "No se pudo actualizar el rol"); }
+    finally { setUpdatingId(null); }
+  };
+
+  const deleteRole = async (role: AccessRole) => {
+    setUpdatingId(role._id);
+    try { await requestJson(`/admin/roles/${role._id}`, { method: "DELETE" }); await onReload(); message.success("Rol eliminado"); }
+    catch (error) { message.error(error instanceof Error ? error.message : "No se pudo eliminar el rol"); }
+    finally { setUpdatingId(null); }
+  };
+
+  const columns: TableColumnsType<AccessRole> = [
     {
-      title: "Usuario",
-      key: "user",
-      width: 280,
-      render: (_, user) => (
-        <div>
-          <Typography.Text strong>{user.name}</Typography.Text>
-          <Typography.Text type="secondary" className="block-text">
-            {user.email}
-          </Typography.Text>
-        </div>
-      ),
+      title: "Rol", key: "role", width: 260,
+      render: (_, role) => <div><Typography.Text strong>{role.name}</Typography.Text>{role.system && <Tag color="gold" className="role-system-tag">Sistema</Tag>}<Typography.Text type="secondary" className="block-text">{role.description || "Sin descripción"}</Typography.Text></div>,
     },
     {
-      title: "Permisos",
-      dataIndex: "permissions",
-      key: "permissions",
-      render: (permissions: string[], user) => (
-        <Select
-          mode="tags"
-          aria-label={`Permisos de ${user.name}`}
-          className="permissions-select"
-          placeholder="Agregar permiso"
-          value={permissions}
-          disabled={updatingId === user._id}
-          tokenSeparators={[","]}
-          onChange={async (values: string[]) => {
-            setUpdatingId(user._id);
-            try {
-              await onUpdate(user._id, { permissions: values });
-              message.success("Permisos actualizados");
-            } catch (error) {
-              message.error(error instanceof Error ? error.message : "No se pudieron actualizar los permisos");
-            } finally {
-              setUpdatingId(null);
-            }
-          }}
-          options={[]}
-        />
-      ),
+      title: "Accesos", dataIndex: "permissions", key: "permissions",
+      render: (permissions: string[], role) => role.system ? <Tag color="success">Acceso total</Tag> : <Checkbox.Group options={permissionOptions} value={permissions} disabled={updatingId === role._id} onChange={(values) => void updatePermissions(role, values as string[])} />,
     },
+    { title: "", key: "actions", width: 70, render: (_, role) => !role.system && <Button type="text" danger icon={<DeleteOutlined />} loading={updatingId === role._id} aria-label={`Eliminar rol ${role.name}`} onClick={() => void deleteRole(role)} /> },
   ];
 
-  return (
+  return (<>
+    <Flex gap={12} wrap="wrap" className="role-creator"><Input placeholder="Nombre del rol, por ejemplo Vendedor" value={name} onChange={(event) => setName(event.target.value)} /><Input placeholder="Descripción breve" value={description} onChange={(event) => setDescription(event.target.value)} /><Button type="primary" loading={creating} onClick={() => void createRole()}>Crear rol</Button></Flex>
     <Table
       rowKey="_id"
       columns={columns}
-      dataSource={users}
+      dataSource={roles}
       loading={loading}
       pagination={false}
-      scroll={{ x: 680 }}
-      locale={{ emptyText: <Empty description="Todavía no hay usuarios" /> }}
+      scroll={{ x: 820 }}
+      locale={{ emptyText: <Empty description="Todavía no hay roles" /> }}
     />
-  );
+  </>);
 }
 
 function HighLevelContacts() {
@@ -419,7 +434,7 @@ function HighLevelContacts() {
 
 type LeadSortField = "fullName" | "monthlyPrice" | "source" | "status" | "syncStatus" | "createdAt";
 
-function LeadsTable({ isAdmin }: { isAdmin: boolean }) {
+function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: boolean }) {
   const { message, modal } = AntApp.useApp();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -459,11 +474,11 @@ function LeadsTable({ isAdmin }: { isAdmin: boolean }) {
   };
 
   const columns: TableColumnsType<Lead> = [
-    { title: "", key: "pinned", width: 54, align: "center", render: (_, lead) => <Button type="text" aria-label={lead.pinned ? "Quitar destacado" : "Destacar lead"} loading={updatingId === lead._id} icon={lead.pinned ? <PushpinFilled className="pin-active" /> : <PushpinOutlined />} onClick={() => void updateLead(lead._id, { pinned: !lead.pinned })} /> },
+    { title: "", key: "pinned", width: 54, align: "center", render: (_, lead) => <Button type="text" disabled={!canManage} aria-label={lead.pinned ? "Quitar destacado" : "Destacar lead"} loading={updatingId === lead._id} icon={lead.pinned ? <PushpinFilled className="pin-active" /> : <PushpinOutlined />} onClick={() => void updateLead(lead._id, { pinned: !lead.pinned })} /> },
     { title: "Lead", key: "fullName", sorter: true, sortOrder: sortBy === "fullName" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (_, lead) => <div><Typography.Text strong>{lead.fullName}</Typography.Text><Typography.Text type="secondary" className="block-text">{lead.email} · {lead.phone}</Typography.Text></div> },
     { title: "Cotización", key: "monthlyPrice", sorter: true, sortOrder: sortBy === "monthlyPrice" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (_, lead) => <div><Typography.Text>{lead.quote.homeType} · {lead.quote.areaLabel}</Typography.Text><Typography.Text type="secondary" className="block-text">{new Intl.NumberFormat("es-AR", { style: "currency", currency: lead.quote.currency, maximumFractionDigits: 0 }).format(lead.quote.monthlyPrice)}/mes</Typography.Text></div> },
     { title: "Source", dataIndex: "source", key: "source", sorter: true, sortOrder: sortBy === "source" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (source: string) => <Tag color="blue">{source}</Tag> },
-    { title: "Estado", dataIndex: "status", key: "status", width: 190, sorter: true, sortOrder: sortBy === "status" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (status: LeadStatus, lead) => <Select aria-label={`Estado de ${lead.fullName}`} value={status} disabled={updatingId === lead._id} options={leadStatusOptions} onChange={(value: LeadStatus) => void updateLead(lead._id, { status: value })} /> },
+    { title: "Estado", dataIndex: "status", key: "status", width: 190, sorter: true, sortOrder: sortBy === "status" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (status: LeadStatus, lead) => <Select aria-label={`Estado de ${lead.fullName}`} value={status} disabled={!canManage || updatingId === lead._id} options={leadStatusOptions} onChange={(value: LeadStatus) => void updateLead(lead._id, { status: value })} /> },
     { title: "HighLevel", key: "syncStatus", width: 130, sorter: true, sortOrder: sortBy === "syncStatus" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (_, lead) => <Tag color={lead.highLevel.syncStatus === "synced" || lead.highLevel.syncStatus === "contact_synced" ? "success" : lead.highLevel.syncStatus === "failed" ? "error" : "warning"}>{lead.highLevel.syncStatus === "synced" ? "Sincronizado" : lead.highLevel.syncStatus === "contact_synced" ? "Contacto creado" : lead.highLevel.syncStatus === "failed" ? "Con error" : "Pendiente"}</Tag> },
     { title: "Ingreso", dataIndex: "createdAt", key: "createdAt", width: 170, sorter: true, sortOrder: sortBy === "createdAt" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (date: string) => new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(date)) },
   ];
@@ -537,9 +552,9 @@ function LeadsTable({ isAdmin }: { isAdmin: boolean }) {
 
   return <>
     <Table rowKey="_id" columns={columns} dataSource={leads} loading={loading} scroll={{ x: 1200 }} onChange={(_, __, sorter) => { const selected = Array.isArray(sorter) ? sorter[0] : sorter; if (!selected?.order || !selected.columnKey) return; setSortBy(selected.columnKey as LeadSortField); setSortOrder(selected.order === "ascend" ? "asc" : "desc"); setPage(1); }} onRow={(lead) => ({ onClick: (event) => { if ((event.target as HTMLElement).closest("button, .ant-select")) return; setSelectedLead(lead); }, className: "clickable-row" })} pagination={{ current: page, pageSize, total, showSizeChanger: false, onChange: setPage, showTotal: (count) => `${count} leads` }} locale={{ emptyText: <Empty description="Todavía no hay leads" /> }} />
-    <Drawer title="Detalle del lead" width={720} open={Boolean(selectedLead)} onClose={() => { setSelectedLead(null); setEditing(false); }} extra={<Space>{editing ? <><Button onClick={cancelEditing} disabled={savingPersonal}>Cancelar</Button><Button type="primary" loading={savingPersonal} onClick={() => void savePersonal()}>Guardar</Button></> : <Button icon={<EditOutlined />} onClick={beginEditing}>Editar</Button>}{isAdmin && !editing && <Button danger icon={<DeleteOutlined />} onClick={deleteLead}>Eliminar lead</Button>}</Space>}>
+    <Drawer title="Detalle del lead" width={720} open={Boolean(selectedLead)} onClose={() => { setSelectedLead(null); setEditing(false); }} extra={<Space>{canManage && (editing ? <><Button onClick={cancelEditing} disabled={savingPersonal}>Cancelar</Button><Button type="primary" loading={savingPersonal} onClick={() => void savePersonal()}>Guardar</Button></> : <Button icon={<EditOutlined />} onClick={beginEditing}>Editar</Button>)}{canDelete && !editing && <Button danger icon={<DeleteOutlined />} onClick={deleteLead}>Eliminar lead</Button>}</Space>}>
       {selectedLead && <>
-        {selectedLead.highLevel.lastError && <div className="lead-sync-error"><Typography.Text strong type="danger">Error de sincronización con HighLevel</Typography.Text><Typography.Paragraph copyable>{selectedLead.highLevel.lastError}</Typography.Paragraph><Button danger loading={syncingLead} onClick={() => void retryHighLevelSync()}>Reintentar sincronización</Button></div>}
+        {selectedLead.highLevel.lastError && <div className="lead-sync-error"><Typography.Text strong type="danger">Error de sincronización con HighLevel</Typography.Text><Typography.Paragraph copyable>{selectedLead.highLevel.lastError}</Typography.Paragraph>{canManage && <Button danger loading={syncingLead} onClick={() => void retryHighLevelSync()}>Reintentar sincronización</Button>}</div>}
         <Typography.Title level={5}>Datos personales</Typography.Title>
         <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
           <Descriptions.Item label="Nombre">{editing ? editInput("firstName") : value(selectedLead.personal?.firstName || selectedLead.fullName)}</Descriptions.Item><Descriptions.Item label="Apellido">{editing ? editInput("lastName") : value(selectedLead.personal?.lastName)}</Descriptions.Item>
@@ -565,8 +580,8 @@ function LeadsTable({ isAdmin }: { isAdmin: boolean }) {
         </Descriptions>
         <Divider />
         <Typography.Title level={5}>Notas</Typography.Title>
-        <div className="note-composer"><Input.TextArea value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Escribí una nota sobre la gestión..." autoSize={{ minRows: 2, maxRows: 5 }} maxLength={3000} /><Button type="primary" loading={savingNote} disabled={!noteText.trim()} onClick={() => void addNote()}>Agregar nota</Button></div>
-        {selectedLead.notes?.length ? selectedLead.notes.map((note) => <div className="lead-note" key={note._id}><div><Typography.Paragraph>{note.text}</Typography.Paragraph><Typography.Text type="secondary">{note.authorName} · {new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(note.createdAt))}</Typography.Text></div><Button type="text" danger aria-label="Eliminar nota" icon={<DeleteOutlined />} onClick={() => void deleteNote(note._id)} /></div>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Sin notas" />}
+        {canManage && <div className="note-composer"><Input.TextArea value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Escribí una nota sobre la gestión..." autoSize={{ minRows: 2, maxRows: 5 }} maxLength={3000} /><Button type="primary" loading={savingNote} disabled={!noteText.trim()} onClick={() => void addNote()}>Agregar nota</Button></div>}
+        {selectedLead.notes?.length ? selectedLead.notes.map((note) => <div className="lead-note" key={note._id}><div><Typography.Paragraph>{note.text}</Typography.Paragraph><Typography.Text type="secondary">{note.authorName} · {new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(note.createdAt))}</Typography.Text></div>{canManage && <Button type="text" danger aria-label="Eliminar nota" icon={<DeleteOutlined />} onClick={() => void deleteNote(note._id)} />}</div>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Sin notas" />}
       </>}
     </Drawer>
   </>;
@@ -574,25 +589,37 @@ function LeadsTable({ isAdmin }: { isAdmin: boolean }) {
 
 function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   const { message } = AntApp.useApp();
+  const can = useCallback((permission: string) => sessionUser.permissions.includes("*") || sessionUser.permissions.includes(permission), [sessionUser.permissions]);
   const [view, setView] = useState<View>(() => viewFromPath(window.location.pathname));
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [roles, setRoles] = useState<AccessRole[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadUsers = useCallback(async () => {
+    if (!can("users.view")) { setLoading(false); return; }
     setLoading(true);
     try {
-      const data = await requestJson<{ users: AdminUser[] }>("/admin/users");
-      setUsers(data.users);
+      const data = await requestJson<{ users: AdminUser[]; roles: AccessRole[] }>("/admin/users");
+      setUsers(data.users); setRoles(data.roles);
     } catch (error) {
       message.error(error instanceof Error ? error.message : "No se pudieron cargar los usuarios");
     } finally {
       setLoading(false);
     }
-  }, [message]);
+  }, [can, message]);
+
+  const loadRoles = useCallback(async () => {
+    if (!can("roles.manage")) return;
+    try {
+      const data = await requestJson<{ roles: AccessRole[] }>("/admin/roles");
+      setRoles(data.roles);
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar los roles"); }
+  }, [can, message]);
 
   useEffect(() => {
     void loadUsers();
-  }, [loadUsers]);
+    void loadRoles();
+  }, [loadRoles, loadUsers]);
 
   useEffect(() => {
     const onPopState = () => setView(viewFromPath(window.location.pathname));
@@ -606,8 +633,15 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
     setView(nextView);
   }, []);
 
+  useEffect(() => {
+    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "highlevel-contacts" && can("highlevel.contacts.view"));
+    if (allowed) return;
+    const fallback: View | undefined = can("leads.view") ? "leads" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
+    if (fallback) navigate(fallback);
+  }, [can, navigate, view]);
+
   const updateUser = useCallback(
-    async (userId: string, input: Partial<Pick<AdminUser, "role" | "status" | "permissions">>) => {
+    async (userId: string, input: Partial<Pick<AdminUser, "status" | "roleIds">>) => {
       const data = await requestJson<{ user: AdminUser }>(`/admin/users/${userId}`, {
         method: "PATCH",
         body: JSON.stringify(input),
@@ -619,17 +653,15 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
 
   const userMenu = useMemo<MenuProps["items"]>(
     () => [
-      { key: "users", label: "Ver todos los usuarios", icon: <TeamOutlined /> },
-      { key: "permissions", label: "Ver permisos", icon: <SafetyCertificateOutlined /> },
-    ],
-    [],
+      can("users.view") ? { key: "users", label: "Ver todos los usuarios", icon: <TeamOutlined /> } : null,
+      can("roles.manage") ? { key: "roles", label: "Ver roles", icon: <SafetyCertificateOutlined /> } : null,
+    ].filter(Boolean) as MenuProps["items"],
+    [can],
   );
 
   const highLevelMenu = useMemo<MenuProps["items"]>(
-    () => [
-      { key: "highlevel-contacts", label: "Contactos", icon: <ContactsOutlined /> },
-    ],
-    [],
+    () => can("highlevel.contacts.view") ? [{ key: "highlevel-contacts", label: "Contactos", icon: <ContactsOutlined /> }] : [],
+    [can],
   );
 
   const logout = async () => {
@@ -643,7 +675,8 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <img className="brand-logo" src="/sat-logo-full-blanco.svg" alt="Seguro a Tiempo" />
         <nav aria-label="Navegación principal">
           <Space>
-            <Button type="text" className="header-menu-button" icon={<ContactsOutlined />} onClick={() => navigate("leads")}>Leads</Button>
+            {can("leads.view") && <Button type="text" className="header-menu-button" icon={<ContactsOutlined />} onClick={() => navigate("leads")}>Leads</Button>}
+            {(can("users.view") || can("roles.manage")) &&
             <Dropdown
               menu={{ items: userMenu, onClick: ({ key }) => navigate(key as View) }}
               trigger={["click"]}
@@ -651,7 +684,8 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
               <Button type="text" className="header-menu-button" icon={<TeamOutlined />}>
                 Usuarios <DownOutlined />
               </Button>
-            </Dropdown>
+            </Dropdown>}
+            {can("highlevel.contacts.view") &&
             <Dropdown
               menu={{ items: highLevelMenu, onClick: ({ key }) => navigate(key as View) }}
               trigger={["click"]}
@@ -659,7 +693,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
               <Button type="text" className="header-menu-button" icon={<ContactsOutlined />}>
                 HighLevel <DownOutlined />
               </Button>
-            </Dropdown>
+            </Dropdown>}
           </Space>
         </nav>
         <Space className="account-actions">
@@ -674,13 +708,13 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <Flex justify="space-between" align="center" gap={16} wrap="wrap" className="page-heading">
           <div>
             <Typography.Title level={2}>
-              {view === "users" ? "Usuarios" : view === "permissions" ? "Permisos" : view === "leads" ? "Leads" : "Contactos de HighLevel"}
+              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : "Contactos de HighLevel"}
             </Typography.Title>
             <Typography.Text type="secondary">
               {view === "users"
                 ? "Administrá quién puede ingresar al sistema y su nivel de acceso."
-                : view === "permissions"
-                  ? "Asigná permisos específicos como etiquetas a cada usuario."
+                : view === "roles"
+                  ? "Creá roles y definí qué partes del sistema puede utilizar cada uno."
                   : view === "leads"
                     ? "Solicitudes recibidas desde los cotizadores y su estado de sincronización."
                     : "Contactos sincronizados desde la subcuenta de Seguro a Tiempo."}
@@ -695,13 +729,13 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
 
         <section className="content-card">
           {view === "users" ? (
-            <UsersTable users={users} loading={loading} onUpdate={updateUser} />
-          ) : view === "permissions" ? (
-            <PermissionsTable users={users} loading={loading} onUpdate={updateUser} />
+            can("users.view") ? <UsersTable users={users} roles={roles} canManage={can("users.manage")} loading={loading} onUpdate={updateUser} /> : <Result status="403" title="Sin acceso" />
+          ) : view === "roles" ? (
+            can("roles.manage") ? <RolesTable roles={roles} loading={loading} onReload={loadRoles} /> : <Result status="403" title="Sin acceso" />
           ) : view === "leads" ? (
-            <LeadsTable isAdmin={sessionUser.role === "admin"} />
+            can("leads.view") ? <LeadsTable canManage={can("leads.manage")} canDelete={can("leads.delete")} /> : <Result status="403" title="Sin acceso" />
           ) : (
-            <HighLevelContacts />
+            can("highlevel.contacts.view") ? <HighLevelContacts /> : <Result status="403" title="Sin acceso" />
           )}
         </section>
       </Layout.Content>
@@ -739,14 +773,6 @@ function SessionGate() {
           subTitle="Un administrador debe habilitar tu usuario antes de que puedas ingresar."
           extra={<Button onClick={() => window.location.assign("/auth/google")}>Volver a intentar</Button>}
         />
-      </main>
-    );
-  }
-
-  if (user.role !== "admin") {
-    return (
-      <main className="centered-page">
-        <Result status="403" title="Sin acceso al panel" subTitle="Tu usuario no tiene permisos de administrador." />
       </main>
     );
   }

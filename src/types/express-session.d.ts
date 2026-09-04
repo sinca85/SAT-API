@@ -10,6 +10,7 @@ declare global {
       role: UserRole;
       status: UserStatus;
       permissions: string[];
+      roles: Array<{ id: string; name: string; slug: string }>;
     }
   }
 }

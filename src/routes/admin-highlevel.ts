@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireActiveUser, requireAuthentication, requireRole } from "../auth/middleware.js";
+import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
 import { env } from "../config/env.js";
 import { highLevelClient } from "../integrations/highlevel/client.js";
 
@@ -28,7 +28,7 @@ interface HighLevelContactsResponse {
 
 export const adminHighLevelRouter = Router();
 
-adminHighLevelRouter.use(requireAuthentication, requireActiveUser, requireRole("admin"));
+adminHighLevelRouter.use(requireAuthentication, requireActiveUser, requirePermission("highlevel.contacts.view"));
 
 adminHighLevelRouter.get("/contacts", async (request, response) => {
   if (!env.HIGHLEVEL_LOCATION_ID) {

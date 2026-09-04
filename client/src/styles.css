@@ -168,6 +168,28 @@ input {
   min-width: 320px;
 }
 
+.role-creator {
+  margin-bottom: 22px;
+  padding: 16px;
+  border: 1px solid #e4eaf1;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.role-creator .ant-input {
+  width: min(320px, 100%);
+}
+
+.role-system-tag {
+  margin-left: 10px;
+}
+
+.ant-checkbox-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(190px, 1fr));
+  gap: 9px 18px;
+}
+
 @media (max-width: 720px) {
   .admin-header {
     grid-template-columns: 1fr auto;
@@ -201,5 +223,9 @@ input {
 
   .permissions-select {
     min-width: 260px;
+  }
+
+  .ant-checkbox-group {
+    grid-template-columns: 1fr;
   }
 }

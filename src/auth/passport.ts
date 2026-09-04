@@ -2,12 +2,14 @@ import passport from "passport";
 import { Strategy as GoogleStrategy, type Profile } from "passport-google-oauth20";
 import { bootstrapAdminEmails, env } from "../config/env.js";
 import { User } from "../models/user.js";
+import { resolveUserAccess } from "./access.js";
 
 export const googleAuthEnabled = Boolean(
   env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET,
 );
 
-function toSessionUser(user: InstanceType<typeof User>): Express.User {
+async function toSessionUser(user: InstanceType<typeof User>): Promise<Express.User> {
+  const access = await resolveUserAccess(user);
   return {
     id: user.id,
     email: user.email,
@@ -15,7 +17,8 @@ function toSessionUser(user: InstanceType<typeof User>): Express.User {
     avatarUrl: user.avatarUrl ?? undefined,
     role: user.role,
     status: user.status,
-    permissions: user.permissions ?? [],
+    roles: access.roles,
+    permissions: access.permissions,
   };
 }
 
@@ -80,7 +83,7 @@ passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id: string, done) => {
   try {
     const user = await User.findById(id);
-    done(null, user ? toSessionUser(user) : false);
+    done(null, user ? await toSessionUser(user) : false);
   } catch (error) {
     done(error as Error);
   }

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireActiveUser, requireAuthentication, requireRole } from "../auth/middleware.js";
+import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
 import { Lead, leadStatuses } from "../models/lead.js";
 import { syncLeadToHighLevel } from "../integrations/highlevel/leads.js";
 
@@ -42,6 +42,7 @@ const noteSchema = z.object({ text: z.string().trim().min(1).max(3000) });
 
 export const adminLeadsRouter = Router();
 adminLeadsRouter.use(requireAuthentication, requireActiveUser);
+adminLeadsRouter.use(requirePermission("leads.view"));
 
 adminLeadsRouter.get("/", async (request, response) => {
   const { page, limit, source, status, sortBy, sortOrder } = listSchema.parse(request.query);
@@ -56,6 +57,7 @@ adminLeadsRouter.get("/", async (request, response) => {
 });
 
 adminLeadsRouter.patch("/:leadId", async (request, response) => {
+  if (!request.user!.permissions.includes("*") && !request.user!.permissions.includes("leads.manage")) { response.status(403).json({ error: "Insufficient permissions" }); return; }
   const input = updateSchema.parse(request.body);
   const personal = input.personal;
   const fullName = personal ? [personal.firstName, personal.lastName].filter(Boolean).join(" ") : undefined;
@@ -79,6 +81,7 @@ adminLeadsRouter.patch("/:leadId", async (request, response) => {
 });
 
 adminLeadsRouter.post("/:leadId/notes", async (request, response) => {
+  if (!request.user!.permissions.includes("*") && !request.user!.permissions.includes("leads.manage")) { response.status(403).json({ error: "Insufficient permissions" }); return; }
   const { text } = noteSchema.parse(request.body);
   const lead = await Lead.findById(request.params.leadId);
   if (!lead) { response.status(404).json({ error: "Lead not found" }); return; }
@@ -88,6 +91,7 @@ adminLeadsRouter.post("/:leadId/notes", async (request, response) => {
 });
 
 adminLeadsRouter.delete("/:leadId/notes/:noteId", async (request, response) => {
+  if (!request.user!.permissions.includes("*") && !request.user!.permissions.includes("leads.manage")) { response.status(403).json({ error: "Insufficient permissions" }); return; }
   const lead = await Lead.findById(request.params.leadId);
   if (!lead) { response.status(404).json({ error: "Lead not found" }); return; }
   const note = lead.notes.id(request.params.noteId);
@@ -97,13 +101,14 @@ adminLeadsRouter.delete("/:leadId/notes/:noteId", async (request, response) => {
   response.json({ lead });
 });
 
-adminLeadsRouter.delete("/:leadId", requireRole("admin"), async (request, response) => {
+adminLeadsRouter.delete("/:leadId", requirePermission("leads.delete"), async (request, response) => {
   const lead = await Lead.findByIdAndDelete(request.params.leadId);
   if (!lead) { response.status(404).json({ error: "Lead not found" }); return; }
   response.status(204).end();
 });
 
 adminLeadsRouter.post("/:leadId/sync-highlevel", async (request, response) => {
+  if (!request.user!.permissions.includes("*") && !request.user!.permissions.includes("leads.manage")) { response.status(403).json({ error: "Insufficient permissions" }); return; }
   const lead = await Lead.findById(request.params.leadId);
   if (!lead) { response.status(404).json({ error: "Lead not found" }); return; }
   try {
