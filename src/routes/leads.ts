@@ -27,6 +27,20 @@ const homeLeadSchema = z.object({
   }).optional(),
 });
 
+const homeContractSchema = z.object({
+  submissionId: z.string().uuid(),
+  firstName: z.string().trim().min(1).max(80),
+  lastName: z.string().trim().min(1).max(80),
+  dni: z.string().trim().min(6).max(30),
+  dateOfBirth: z.string().date(),
+  address: z.string().trim().min(3).max(250),
+  floor: z.string().trim().min(1).max(40),
+  apartment: z.string().trim().max(40),
+  postalCode: z.string().trim().min(4).max(20),
+  email: z.string().trim().email().max(254),
+  phone: z.string().trim().min(8).max(40),
+});
+
 export const leadsRouter = Router();
 
 leadsRouter.get("/home/quote", async (request, response) => {
@@ -86,4 +100,35 @@ leadsRouter.post("/home", async (request, response) => {
   }
 
   response.status(201).json({ leadId: lead.id, syncStatus: lead.highLevel!.syncStatus, quote });
+});
+
+leadsRouter.patch("/home/:leadId/contract", async (request, response) => {
+  const input = homeContractSchema.parse(request.body);
+  const lead = await Lead.findOne({ _id: request.params.leadId, submissionId: input.submissionId, source: HOME_LEAD_SOURCE });
+  if (!lead) { response.status(404).json({ error: "Lead not found" }); return; }
+
+  lead.personal = {
+    firstName: input.firstName,
+    lastName: input.lastName,
+    dni: input.dni,
+    dateOfBirth: input.dateOfBirth,
+    address: input.address,
+    floor: input.floor,
+    apartment: input.apartment,
+    postalCode: input.postalCode,
+    email: input.email,
+    phone: input.phone,
+  };
+  lead.fullName = `${input.firstName} ${input.lastName}`.trim();
+  lead.email = input.email;
+  lead.phone = input.phone;
+  lead.status = "interested";
+  try {
+    await syncLeadToHighLevel(lead);
+  } catch (error) {
+    lead.highLevel!.syncStatus = "failed";
+    lead.highLevel!.lastError = error instanceof Error ? error.message : "Unknown HighLevel error";
+    await lead.save();
+  }
+  response.json({ leadId: lead.id, syncStatus: lead.highLevel!.syncStatus });
 });

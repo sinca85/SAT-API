@@ -95,7 +95,7 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
   lead.highLevel!.lastError = undefined;
 
   const pipelineStageId = await getHomePipelineStageId();
-  if (pipelineStageId) {
+  if (pipelineStageId && !lead.highLevel!.opportunityId) {
     const opportunityData = await highLevelClient.request<CreateOpportunityResponse>("/opportunities/", {
       method: "POST",
       headers: { "Content-Type": "application/json", Version: "2021-07-28" },
