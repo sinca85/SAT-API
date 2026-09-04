@@ -1,7 +1,9 @@
 import { env } from "../../config/env.js";
+import { createHash } from "node:crypto";
 import type { Lead } from "../../models/lead.js";
 import { HighLevelRequestError, highLevelClient } from "./client.js";
 import { ensureHomeContactFields } from "./custom-fields.js";
+import { getHighLevelCampaign } from "./campaigns/index.js";
 
 type LeadDocument = InstanceType<typeof Lead>;
 
@@ -11,6 +13,10 @@ interface UpsertContactResponse {
 
 interface CreateOpportunityResponse {
   opportunity: { id: string };
+}
+
+interface NoteResponse {
+  note?: { id: string };
 }
 
 interface PipelinesResponse {
@@ -25,21 +31,46 @@ interface DuplicateContactBody {
   meta?: { contactId?: string };
 }
 
-const HOME_PIPELINE_ID = "9DdYJgpdvNCQHDi1a4ND";
-const HOME_PIPELINE_STAGE_NAME = "A contactar";
-let cachedHomeStageId: string | undefined;
+const cachedStageIds = new Map<string, string>();
 
-async function getHomePipelineStageId() {
-  if (cachedHomeStageId) return cachedHomeStageId;
+async function getPipelineStageId(pipelineId: string, stageName: string) {
+  const cacheKey = `${pipelineId}:${stageName}`;
+  const cachedStageId = cachedStageIds.get(cacheKey);
+  if (cachedStageId) return cachedStageId;
 
   const data = await highLevelClient.request<PipelinesResponse>(
     `/opportunities/pipelines?locationId=${encodeURIComponent(env.HIGHLEVEL_LOCATION_ID!)}`,
   );
-  const pipeline = data.pipelines?.find(({ id }) => id === HOME_PIPELINE_ID);
-  const stage = pipeline?.stages?.find(({ name }) => name.trim().toLocaleLowerCase("es") === HOME_PIPELINE_STAGE_NAME.toLocaleLowerCase("es"));
-  if (!stage) throw new Error(`HighLevel stage "${HOME_PIPELINE_STAGE_NAME}" was not found`);
-  cachedHomeStageId = stage.id;
+  const pipeline = data.pipelines?.find(({ id }) => id === pipelineId);
+  const stage = pipeline?.stages?.find(({ name }) => name.trim().toLocaleLowerCase("es") === stageName.toLocaleLowerCase("es"));
+  if (!stage) throw new Error(`HighLevel stage "${stageName}" was not found`);
+  cachedStageIds.set(cacheKey, stage.id);
   return stage.id;
+}
+
+async function syncSummaryNote(lead: LeadDocument, contactId: string) {
+  const note = getHighLevelCampaign(lead.source).buildSummaryNote(lead);
+  const fingerprint = createHash("sha256").update(JSON.stringify(note)).digest("hex");
+  if (lead.highLevel?.summaryNoteFingerprint === fingerprint) return;
+
+  const payload = { ...note, pinned: true };
+  const noteId = lead.highLevel?.summaryNoteId;
+  if (noteId) {
+    await highLevelClient.request(`/contacts/${contactId}/notes/${noteId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Version: "v3" },
+      body: JSON.stringify(payload),
+    });
+  } else {
+    const data = await highLevelClient.request<NoteResponse>(`/contacts/${contactId}/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Version: "v3" },
+      body: JSON.stringify(payload),
+    });
+    if (!data.note?.id) throw new Error("HighLevel did not return a summary note ID");
+    lead.highLevel!.summaryNoteId = data.note.id;
+  }
+  lead.highLevel!.summaryNoteFingerprint = fingerprint;
 }
 
 function splitName(fullName: string) {
@@ -49,6 +80,7 @@ function splitName(fullName: string) {
 
 export async function syncLeadToHighLevel(lead: LeadDocument) {
   if (!env.HIGHLEVEL_LOCATION_ID) throw new Error("HighLevel Location ID is not configured");
+  const campaign = getHighLevelCampaign(lead.source);
 
   const fallbackName = splitName(lead.fullName);
   const firstName = lead.personal?.firstName || fallbackName.firstName;
@@ -120,7 +152,7 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
   await highLevelClient.request(`/contacts/${contactId}/tags`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Version: "2021-07-28" },
-    body: JSON.stringify({ tags: [lead.source, "producto_hogar", "aseguradora_allianz"] }),
+    body: JSON.stringify({ tags: campaign.tags }),
   });
 
   lead.highLevel!.contactId = contactId;
@@ -128,16 +160,16 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
   lead.highLevel!.lastSyncedAt = new Date();
   lead.highLevel!.lastError = undefined;
 
-  const pipelineStageId = await getHomePipelineStageId();
+  const pipelineStageId = await getPipelineStageId(campaign.pipelineId, campaign.pipelineStageName);
   if (pipelineStageId && !lead.highLevel!.opportunityId) {
     const opportunityData = await highLevelClient.request<CreateOpportunityResponse>("/opportunities/", {
       method: "POST",
       headers: { "Content-Type": "application/json", Version: "2021-07-28" },
       body: JSON.stringify({
-        pipelineId: HOME_PIPELINE_ID,
+        pipelineId: campaign.pipelineId,
         pipelineStageId,
         locationId: env.HIGHLEVEL_LOCATION_ID,
-        name: `${lead.fullName} · Seguro de Hogar`,
+        name: campaign.opportunityName(lead),
         status: "open",
         contactId,
         monetaryValue: lead.quote!.monthlyPrice * 12,
@@ -146,6 +178,9 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
     lead.highLevel!.opportunityId = opportunityData.opportunity.id;
     lead.highLevel!.syncStatus = "synced";
   }
+
+  await syncSummaryNote(lead, contactId);
+  lead.highLevel!.syncStatus = "synced";
 
   await lead.save();
 }

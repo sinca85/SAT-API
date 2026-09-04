@@ -122,6 +122,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error(data?.error ?? "No se pudo completar la operación");
   }
 
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 

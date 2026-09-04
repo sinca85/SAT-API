@@ -2,10 +2,11 @@ import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { syncLeadToHighLevel } from "../integrations/highlevel/leads.js";
+import { ALLIANZ_HOME_SOURCE } from "../integrations/highlevel/campaigns/index.js";
 import { Lead } from "../models/lead.js";
 import { getHomeQuote, getHomeQuoteOptions } from "../services/home-quotes.js";
 
-export const HOME_LEAD_SOURCE = "2016_08_allianz_hogar";
+export const HOME_LEAD_SOURCE = ALLIANZ_HOME_SOURCE;
 
 const homeLeadSchema = z.object({
   submissionId: z.string().uuid().optional(),

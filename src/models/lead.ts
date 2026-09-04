@@ -82,6 +82,8 @@ const leadSchema = new Schema(
     highLevel: {
       contactId: String,
       opportunityId: String,
+      summaryNoteId: String,
+      summaryNoteFingerprint: String,
       syncStatus: { type: String, enum: ["pending", "contact_synced", "synced", "failed"], default: "pending" },
       lastSyncedAt: Date,
       lastError: String,
