@@ -13,6 +13,11 @@ const listSchema = z.object({
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
+const editablePhone = z.string().trim().max(24).refine(
+  (value) => !value || (/^\+?[\d\s()-]+$/.test(value) && value.replace(/\D/g, "").length >= 8 && value.replace(/\D/g, "").length <= 15),
+  "Ingresá un teléfono válido de entre 8 y 15 números",
+);
+
 const updateSchema = z.object({
   status: z.enum(leadStatuses).optional(),
   pinned: z.boolean().optional(),
@@ -29,7 +34,7 @@ const updateSchema = z.object({
     apartment: z.string().trim().max(40),
     postalCode: z.string().trim().max(20),
     email: z.union([z.literal(""), z.string().trim().email().max(254)]),
-    phone: z.string().trim().max(40),
+    phone: editablePhone,
   }).optional(),
 });
 

@@ -2,6 +2,7 @@ import {
   CheckCircleOutlined,
   DeleteOutlined,
   DownOutlined,
+  EditOutlined,
   GoogleOutlined,
   LogoutOutlined,
   ContactsOutlined,
@@ -84,11 +85,24 @@ interface Lead {
   priority: "low" | "normal" | "high" | "urgent";
   nextFollowUpAt?: string;
   createdAt: string;
-  personal?: { firstName?: string; lastName?: string; dni?: string; dateOfBirth?: string; address?: string; floor?: string; apartment?: string; postalCode?: string; email?: string; phone?: string };
+  personal?: LeadPersonal;
   quote: { postalCode: string; homeType: string; floor: string; requestedSquareMeters?: number; quotedSquareMeters?: number; areaLabel: string; monthlyPrice: number; structureCoverage?: number; contentsCoverage?: number; appliancesCoverage?: number; glassCoverage?: number; theftCoverage?: number; waterDamageCoverage?: number; assistanceIncluded?: boolean; currency: string };
   origin?: { landing?: string; channel?: string; pageUrl?: string; referrer?: string; utmSource?: string; utmMedium?: string; utmCampaign?: string; utmContent?: string; utmTerm?: string };
   notes?: Array<{ _id: string; text: string; authorName: string; createdAt: string }>;
   highLevel: { contactId?: string; opportunityId?: string; syncStatus: "pending" | "contact_synced" | "synced" | "failed"; lastError?: string };
+}
+
+interface LeadPersonal {
+  firstName?: string;
+  lastName?: string;
+  dni?: string;
+  dateOfBirth?: string;
+  address?: string;
+  floor?: string;
+  apartment?: string;
+  postalCode?: string;
+  email?: string;
+  phone?: string;
 }
 
 const leadStatusOptions = [
@@ -418,6 +432,9 @@ function LeadsTable({ isAdmin }: { isAdmin: boolean }) {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [noteText, setNoteText] = useState("");
   const [savingNote, setSavingNote] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [savingPersonal, setSavingPersonal] = useState(false);
+  const [editPersonal, setEditPersonal] = useState<Required<LeadPersonal>>({ firstName: "", lastName: "", dni: "", dateOfBirth: "", address: "", floor: "", apartment: "", postalCode: "", email: "", phone: "" });
   const pageSize = 25;
 
   const loadLeads = useCallback(async (nextPage: number) => {
@@ -483,18 +500,52 @@ function LeadsTable({ isAdmin }: { isAdmin: boolean }) {
     if (!selectedLead) return;
     modal.confirm({ title: "Eliminar lead", content: `¿Querés eliminar el registro de ${selectedLead.fullName}? Esta acción no elimina el contacto de HighLevel.`, okText: "Eliminar", cancelText: "Cancelar", okButtonProps: { danger: true }, onOk: async () => { await requestJson(`/admin/leads/${selectedLead._id}`, { method: "DELETE" }); setLeads((current) => current.filter((lead) => lead._id !== selectedLead._id)); setTotal((current) => Math.max(0, current - 1)); setSelectedLead(null); message.success("Lead eliminado"); } });
   };
+  const beginEditing = () => {
+    if (!selectedLead) return;
+    const personal = selectedLead.personal;
+    setEditPersonal({
+      firstName: personal?.firstName || selectedLead.fullName,
+      lastName: personal?.lastName || "",
+      dni: personal?.dni || "",
+      dateOfBirth: personal?.dateOfBirth || "",
+      address: personal?.address || "",
+      floor: personal?.floor || selectedLead.quote.floor || "",
+      apartment: personal?.apartment || "",
+      postalCode: personal?.postalCode || selectedLead.quote.postalCode || "",
+      email: personal?.email || selectedLead.email || "",
+      phone: personal?.phone || selectedLead.phone || "",
+    });
+    setEditing(true);
+  };
+  const cancelEditing = () => setEditing(false);
+  const changePersonal = (key: keyof LeadPersonal, value: string) => setEditPersonal((current) => ({ ...current, [key]: value }));
+  const savePersonal = async () => {
+    if (!selectedLead) return;
+    setSavingPersonal(true);
+    try {
+      const data = await requestJson<{ lead: Lead }>(`/admin/leads/${selectedLead._id}`, { method: "PATCH", body: JSON.stringify({ personal: editPersonal }) });
+      setSelectedLead(data.lead);
+      setLeads((current) => current.map((lead) => lead._id === data.lead._id ? data.lead : lead));
+      setEditing(false);
+      if (data.lead.highLevel.syncStatus === "failed") message.warning("Los datos se guardaron, pero HighLevel rechazó la sincronización.");
+      else message.success("Datos actualizados y sincronizados");
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron guardar los datos"); }
+    finally { setSavingPersonal(false); }
+  };
+
+  const editInput = (key: keyof LeadPersonal, options?: { type?: string; placeholder?: string }) => <Input type={options?.type} placeholder={options?.placeholder} value={editPersonal[key]} onChange={(event) => changePersonal(key, event.target.value)} />;
 
   return <>
     <Table rowKey="_id" columns={columns} dataSource={leads} loading={loading} scroll={{ x: 1200 }} onChange={(_, __, sorter) => { const selected = Array.isArray(sorter) ? sorter[0] : sorter; if (!selected?.order || !selected.columnKey) return; setSortBy(selected.columnKey as LeadSortField); setSortOrder(selected.order === "ascend" ? "asc" : "desc"); setPage(1); }} onRow={(lead) => ({ onClick: (event) => { if ((event.target as HTMLElement).closest("button, .ant-select")) return; setSelectedLead(lead); }, className: "clickable-row" })} pagination={{ current: page, pageSize, total, showSizeChanger: false, onChange: setPage, showTotal: (count) => `${count} leads` }} locale={{ emptyText: <Empty description="Todavía no hay leads" /> }} />
-    <Drawer title="Detalle del lead" width={720} open={Boolean(selectedLead)} onClose={() => setSelectedLead(null)} extra={isAdmin ? <Button danger icon={<DeleteOutlined />} onClick={deleteLead}>Eliminar lead</Button> : undefined}>
+    <Drawer title="Detalle del lead" width={720} open={Boolean(selectedLead)} onClose={() => { setSelectedLead(null); setEditing(false); }} extra={<Space>{editing ? <><Button onClick={cancelEditing} disabled={savingPersonal}>Cancelar</Button><Button type="primary" loading={savingPersonal} onClick={() => void savePersonal()}>Guardar</Button></> : <Button icon={<EditOutlined />} onClick={beginEditing}>Editar</Button>}{isAdmin && !editing && <Button danger icon={<DeleteOutlined />} onClick={deleteLead}>Eliminar lead</Button>}</Space>}>
       {selectedLead && <>
         {selectedLead.highLevel.lastError && <div className="lead-sync-error"><Typography.Text strong type="danger">Error de sincronización con HighLevel</Typography.Text><Typography.Paragraph copyable>{selectedLead.highLevel.lastError}</Typography.Paragraph><Button danger loading={syncingLead} onClick={() => void retryHighLevelSync()}>Reintentar sincronización</Button></div>}
         <Typography.Title level={5}>Datos personales</Typography.Title>
         <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
-          <Descriptions.Item label="Nombre">{value(selectedLead.personal?.firstName || selectedLead.fullName)}</Descriptions.Item><Descriptions.Item label="Apellido">{value(selectedLead.personal?.lastName)}</Descriptions.Item>
-          <Descriptions.Item label="DNI">{value(selectedLead.personal?.dni)}</Descriptions.Item><Descriptions.Item label="Fecha de nacimiento">{value(selectedLead.personal?.dateOfBirth)}</Descriptions.Item>
-          <Descriptions.Item label="Domicilio" span={2}>{value(selectedLead.personal?.address)}</Descriptions.Item><Descriptions.Item label="Piso">{value(selectedLead.personal?.floor || selectedLead.quote.floor)}</Descriptions.Item><Descriptions.Item label="Departamento">{value(selectedLead.personal?.apartment)}</Descriptions.Item>
-          <Descriptions.Item label="Código postal">{value(selectedLead.personal?.postalCode || selectedLead.quote.postalCode)}</Descriptions.Item><Descriptions.Item label="Email">{value(selectedLead.personal?.email || selectedLead.email)}</Descriptions.Item><Descriptions.Item label="Celular" span={2}>{value(selectedLead.personal?.phone || selectedLead.phone)}</Descriptions.Item>
+          <Descriptions.Item label="Nombre">{editing ? editInput("firstName") : value(selectedLead.personal?.firstName || selectedLead.fullName)}</Descriptions.Item><Descriptions.Item label="Apellido">{editing ? editInput("lastName") : value(selectedLead.personal?.lastName)}</Descriptions.Item>
+          <Descriptions.Item label="DNI">{editing ? editInput("dni") : value(selectedLead.personal?.dni)}</Descriptions.Item><Descriptions.Item label="Fecha de nacimiento">{editing ? editInput("dateOfBirth", { type: "date" }) : value(selectedLead.personal?.dateOfBirth)}</Descriptions.Item>
+          <Descriptions.Item label="Domicilio" span={2}>{editing ? editInput("address", { placeholder: "Calle y número" }) : value(selectedLead.personal?.address)}</Descriptions.Item><Descriptions.Item label="Piso">{editing ? <Select value={editPersonal.floor || undefined} placeholder="Seleccioná el piso" style={{ width: "100%" }} onChange={(value) => changePersonal("floor", value)} options={["Planta baja", "Primer piso", "Segundo piso o superior", "No corresponde"].map((value) => ({ value, label: value }))} /> : value(selectedLead.personal?.floor || selectedLead.quote.floor)}</Descriptions.Item><Descriptions.Item label="Departamento">{editing ? editInput("apartment") : value(selectedLead.personal?.apartment)}</Descriptions.Item>
+          <Descriptions.Item label="Código postal">{editing ? editInput("postalCode") : value(selectedLead.personal?.postalCode || selectedLead.quote.postalCode)}</Descriptions.Item><Descriptions.Item label="Email">{editing ? editInput("email", { type: "email" }) : value(selectedLead.personal?.email || selectedLead.email)}</Descriptions.Item><Descriptions.Item label="Celular" span={2}>{editing ? editInput("phone", { type: "tel", placeholder: "+54 9 11 1234 5678" }) : value(selectedLead.personal?.phone || selectedLead.phone)}</Descriptions.Item>
         </Descriptions>
         <Divider />
         <Typography.Title level={5}>Cotización</Typography.Title>
