@@ -1,6 +1,6 @@
 import { env } from "../../config/env.js";
 import type { Lead } from "../../models/lead.js";
-import { highLevelClient } from "./client.js";
+import { HighLevelRequestError, highLevelClient } from "./client.js";
 import { ensureHomeContactFields } from "./custom-fields.js";
 
 type LeadDocument = InstanceType<typeof Lead>;
@@ -19,6 +19,10 @@ interface PipelinesResponse {
     name: string;
     stages?: Array<{ id: string; name: string }>;
   }>;
+}
+
+interface DuplicateContactBody {
+  meta?: { contactId?: string };
 }
 
 const HOME_PIPELINE_ID = "9DdYJgpdvNCQHDi1a4ND";
@@ -73,15 +77,39 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
     customFields,
     source: lead.source,
   };
-  const contactData = await highLevelClient.request<UpsertContactResponse>(
-    existingContactId ? `/contacts/${existingContactId}` : "/contacts/upsert",
+  const updateContact = (contactId: string) => highLevelClient.request<UpsertContactResponse>(
+    `/contacts/${contactId}`,
     {
-      method: existingContactId ? "PUT" : "POST",
+      method: "PUT",
       headers: { "Content-Type": "application/json", Version: "v3" },
-      body: JSON.stringify(contactPayload),
+      body: JSON.stringify({ ...contactPayload, locationId: undefined }),
     },
   );
-  const contactId = contactData.contact?.id || existingContactId;
+  let recoveredContactId = existingContactId;
+  let contactData: UpsertContactResponse;
+  if (existingContactId) {
+    contactData = await updateContact(existingContactId);
+  } else {
+    try {
+      contactData = await highLevelClient.request<UpsertContactResponse>("/contacts/upsert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Version: "v3" },
+        body: JSON.stringify(contactPayload),
+      });
+    } catch (error) {
+      const duplicateContactId = error instanceof HighLevelRequestError && error.status === 400
+        ? (error.body as DuplicateContactBody)?.meta?.contactId
+        : undefined;
+      if (!duplicateContactId) throw error;
+      recoveredContactId = duplicateContactId;
+      contactData = await updateContact(duplicateContactId);
+    }
+  }
+  /*
+   * HighLevel can return an existing contact ID inside a duplicate-contact error.
+   * In that case, the update response is not guaranteed to repeat the ID.
+   */
+  const contactId = contactData.contact?.id || recoveredContactId;
   if (!contactId) throw new Error("HighLevel did not return a contact ID");
 
   await highLevelClient.request(`/contacts/${contactId}/tags`, {
