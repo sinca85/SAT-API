@@ -59,27 +59,28 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
     { id: contactFields.precio_mensual, fieldValue: lead.quote!.monthlyPrice },
     { id: contactFields.suma_asegurada_estructura, fieldValue: lead.quote!.structureCoverage },
   ];
-  const contactPayload = {
-      locationId: env.HIGHLEVEL_LOCATION_ID,
-      firstName,
-      lastName,
-      name: [firstName, lastName].filter(Boolean).join(" "),
-      email: lead.personal?.email || lead.email || null,
-      phone: lead.personal?.phone || lead.phone || null,
-      address1: lead.personal?.address || null,
-      postalCode: lead.personal?.postalCode || lead.quote!.postalCode,
-      dateOfBirth: lead.personal?.dateOfBirth || null,
-      customFields,
-      source: lead.source,
-  };
   const existingContactId = lead.highLevel?.contactId;
+  const contactPayload = {
+    ...(!existingContactId ? { locationId: env.HIGHLEVEL_LOCATION_ID } : {}),
+    firstName,
+    lastName,
+    name: [firstName, lastName].filter(Boolean).join(" "),
+    email: lead.personal?.email || lead.email || null,
+    phone: lead.personal?.phone || lead.phone || null,
+    address1: lead.personal?.address || null,
+    postalCode: lead.personal?.postalCode || lead.quote!.postalCode,
+    dateOfBirth: lead.personal?.dateOfBirth || null,
+    customFields,
+    source: lead.source,
+  };
   const contactData = await highLevelClient.request<UpsertContactResponse>(
     existingContactId ? `/contacts/${existingContactId}` : "/contacts/upsert",
     {
-    method: existingContactId ? "PUT" : "POST",
-    headers: { "Content-Type": "application/json", Version: "v3" },
-    body: JSON.stringify(contactPayload),
-  });
+      method: existingContactId ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json", Version: "v3" },
+      body: JSON.stringify(contactPayload),
+    },
+  );
   const contactId = contactData.contact?.id || existingContactId;
   if (!contactId) throw new Error("HighLevel did not return a contact ID");
 
