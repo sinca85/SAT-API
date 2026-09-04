@@ -1,6 +1,7 @@
 import { env } from "../../config/env.js";
 import type { Lead } from "../../models/lead.js";
 import { highLevelClient } from "./client.js";
+import { ensureHomeContactFields } from "./custom-fields.js";
 
 type LeadDocument = InstanceType<typeof Lead>;
 
@@ -45,29 +46,50 @@ function splitName(fullName: string) {
 export async function syncLeadToHighLevel(lead: LeadDocument) {
   if (!env.HIGHLEVEL_LOCATION_ID) throw new Error("HighLevel Location ID is not configured");
 
-  const { firstName, lastName } = splitName(lead.fullName);
-  const contactData = await highLevelClient.request<UpsertContactResponse>("/contacts/upsert", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Version: "2021-07-28" },
-    body: JSON.stringify({
+  const fallbackName = splitName(lead.fullName);
+  const firstName = lead.personal?.firstName || fallbackName.firstName;
+  const lastName = lead.personal?.lastName || fallbackName.lastName;
+  const contactFields = await ensureHomeContactFields();
+  const customFields = [
+    { id: contactFields.dni, fieldValue: lead.personal?.dni || "" },
+    { id: contactFields.piso, fieldValue: lead.personal?.floor || lead.quote!.floor },
+    { id: contactFields.departamento, fieldValue: lead.personal?.apartment || "" },
+    { id: contactFields.tipo_vivienda, fieldValue: lead.quote!.homeType },
+    { id: contactFields.metros_cuadrados, fieldValue: lead.quote!.areaLabel },
+    { id: contactFields.precio_mensual, fieldValue: lead.quote!.monthlyPrice },
+    { id: contactFields.suma_asegurada_estructura, fieldValue: lead.quote!.structureCoverage },
+  ];
+  const contactPayload = {
       locationId: env.HIGHLEVEL_LOCATION_ID,
       firstName,
       lastName,
-      name: lead.fullName,
-      email: lead.email,
-      phone: lead.phone,
-      postalCode: lead.quote!.postalCode,
+      name: [firstName, lastName].filter(Boolean).join(" "),
+      email: lead.personal?.email || lead.email || null,
+      phone: lead.personal?.phone || lead.phone || null,
+      address1: lead.personal?.address || null,
+      postalCode: lead.personal?.postalCode || lead.quote!.postalCode,
+      dateOfBirth: lead.personal?.dateOfBirth || null,
+      customFields,
       source: lead.source,
-    }),
+  };
+  const existingContactId = lead.highLevel?.contactId;
+  const contactData = await highLevelClient.request<UpsertContactResponse>(
+    existingContactId ? `/contacts/${existingContactId}` : "/contacts/upsert",
+    {
+    method: existingContactId ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json", Version: "v3" },
+    body: JSON.stringify(contactPayload),
   });
+  const contactId = contactData.contact?.id || existingContactId;
+  if (!contactId) throw new Error("HighLevel did not return a contact ID");
 
-  await highLevelClient.request(`/contacts/${contactData.contact.id}/tags`, {
+  await highLevelClient.request(`/contacts/${contactId}/tags`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Version: "2021-07-28" },
     body: JSON.stringify({ tags: [lead.source, "producto_hogar", "aseguradora_allianz"] }),
   });
 
-  lead.highLevel!.contactId = contactData.contact.id;
+  lead.highLevel!.contactId = contactId;
   lead.highLevel!.syncStatus = "contact_synced";
   lead.highLevel!.lastSyncedAt = new Date();
   lead.highLevel!.lastError = undefined;
@@ -83,7 +105,7 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
         locationId: env.HIGHLEVEL_LOCATION_ID,
         name: `${lead.fullName} · Seguro de Hogar`,
         status: "open",
-        contactId: contactData.contact.id,
+        contactId,
         monetaryValue: lead.quote!.monthlyPrice * 12,
       }),
     });

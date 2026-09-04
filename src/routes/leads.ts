@@ -46,6 +46,8 @@ leadsRouter.post("/home", async (request, response) => {
     return;
   }
 
+  const [firstName = input.name, ...lastNameParts] = input.name.trim().split(/\s+/);
+
   const lead = await Lead.create({
     submissionId,
     source: HOME_LEAD_SOURCE,
@@ -54,6 +56,18 @@ leadsRouter.post("/home", async (request, response) => {
     fullName: input.name,
     email: input.email,
     phone: input.phone,
+    personal: {
+      firstName,
+      lastName: lastNameParts.join(" "),
+      dni: "",
+      dateOfBirth: "",
+      address: "",
+      floor: input.floor,
+      apartment: "",
+      postalCode: input.postalCode,
+      email: input.email,
+      phone: input.phone,
+    },
     quote: {
       postalCode: input.postalCode,
       homeType: input.homeType,

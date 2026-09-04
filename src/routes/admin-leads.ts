@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireActiveUser, requireAuthentication, requireRole } from "../auth/middleware.js";
 import { Lead, leadStatuses } from "../models/lead.js";
+import { syncLeadToHighLevel } from "../integrations/highlevel/leads.js";
 
 const listSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -16,6 +17,18 @@ const updateSchema = z.object({
   priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
   nextFollowUpAt: z.string().datetime().nullable().optional(),
   lossReason: z.string().trim().max(500).nullable().optional(),
+  personal: z.object({
+    firstName: z.string().trim().max(80),
+    lastName: z.string().trim().max(80),
+    dni: z.string().trim().max(30),
+    dateOfBirth: z.string().trim().max(10),
+    address: z.string().trim().max(250),
+    floor: z.string().trim().max(40),
+    apartment: z.string().trim().max(40),
+    postalCode: z.string().trim().max(20),
+    email: z.union([z.literal(""), z.string().trim().email().max(254)]),
+    phone: z.string().trim().max(40),
+  }).optional(),
 });
 
 const noteSchema = z.object({ text: z.string().trim().min(1).max(3000) });
@@ -35,9 +48,24 @@ adminLeadsRouter.get("/", async (request, response) => {
 
 adminLeadsRouter.patch("/:leadId", async (request, response) => {
   const input = updateSchema.parse(request.body);
-  const update = { ...input, ...(input.nextFollowUpAt !== undefined ? { nextFollowUpAt: input.nextFollowUpAt ? new Date(input.nextFollowUpAt) : null } : {}) };
+  const personal = input.personal;
+  const fullName = personal ? [personal.firstName, personal.lastName].filter(Boolean).join(" ") : undefined;
+  const update = {
+    ...input,
+    ...(personal ? { personal, fullName, email: personal.email, phone: personal.phone } : {}),
+    ...(input.nextFollowUpAt !== undefined ? { nextFollowUpAt: input.nextFollowUpAt ? new Date(input.nextFollowUpAt) : null } : {}),
+  };
   const lead = await Lead.findByIdAndUpdate(request.params.leadId, update, { new: true, runValidators: true });
   if (!lead) { response.status(404).json({ error: "Lead not found" }); return; }
+  if (personal) {
+    try {
+      await syncLeadToHighLevel(lead);
+    } catch (error) {
+      lead.highLevel!.syncStatus = "failed";
+      lead.highLevel!.lastError = error instanceof Error ? error.message : "Unknown HighLevel error";
+      await lead.save();
+    }
+  }
   response.json({ lead });
 });
 
