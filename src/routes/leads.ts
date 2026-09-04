@@ -8,11 +8,16 @@ import { getHomeQuote, getHomeQuoteOptions } from "../services/home-quotes.js";
 
 export const HOME_LEAD_SOURCE = ALLIANZ_HOME_SOURCE;
 
+const argentinaPhone = z.string().trim().min(8).max(24).refine(
+  (value) => /^\+?[\d\s()-]+$/.test(value) && value.replace(/\D/g, "").length >= 8 && value.replace(/\D/g, "").length <= 15,
+  "Ingresá un teléfono válido de entre 8 y 15 números",
+);
+
 const homeLeadSchema = z.object({
   submissionId: z.string().uuid().optional(),
   name: z.string().trim().min(3).max(120),
   email: z.string().trim().email().max(254),
-  phone: z.string().trim().min(8).max(40),
+  phone: argentinaPhone,
   postalCode: z.string().regex(/^\d{4}$/),
   homeType: z.enum(["Casa", "Departamento", "PH", "Barrio privado"]),
   floor: z.string().trim().min(1).max(40),
@@ -39,7 +44,7 @@ const homeContractSchema = z.object({
   apartment: z.string().trim().max(40),
   postalCode: z.string().trim().min(4).max(20),
   email: z.string().trim().email().max(254),
-  phone: z.string().trim().min(8).max(40),
+  phone: argentinaPhone,
 });
 
 export const leadsRouter = Router();
