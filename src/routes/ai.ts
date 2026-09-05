@@ -68,8 +68,14 @@ aiAdminRouter.post("/configurations/:configurationId/documents", upload.array("f
   if (!configuration) { response.status(404).json({ error: "Configuration not found" }); return; }
   const files = (request.files as Express.Multer.File[] | undefined) ?? [];
   if (!files.length) { response.status(400).json({ error: "At least one PDF file is required" }); return; }
-  const { PDFParse } = await import("pdf-parse");
   const documents = [];
+  let PDFParse: typeof import("pdf-parse").PDFParse;
+  try {
+    ({ PDFParse } = await import("pdf-parse"));
+  } catch (error) {
+    response.status(200).json({ documents: files.map((file) => ({ name: file.originalname, status: "error", chunkCount: 0, error: error instanceof Error ? error.message : "No se pudo cargar el lector PDF" })) });
+    return;
+  }
   for (const file of files) {
     try {
       const parser = new PDFParse({ data: file.buffer });
