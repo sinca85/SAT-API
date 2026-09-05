@@ -8,6 +8,8 @@ export const accessPermissions = [
   "users.manage",
   "roles.manage",
   "highlevel.contacts.view",
+  "faqs.view",
+  "faqs.manage",
 ] as const;
 
 export type AccessPermission = (typeof accessPermissions)[number] | "*";

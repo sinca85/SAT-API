@@ -5,6 +5,7 @@ import {
   EditOutlined,
   GoogleOutlined,
   LogoutOutlined,
+  PlusOutlined,
   ContactsOutlined,
   PushpinFilled,
   PushpinOutlined,
@@ -41,7 +42,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 type UserRole = "admin" | "user";
 type UserStatus = "pending" | "active" | "disabled";
-type View = "users" | "roles" | "highlevel-contacts" | "leads";
+type View = "users" | "roles" | "highlevel-contacts" | "leads" | "faqs";
 type LeadStatus = "new" | "pending_contact" | "contacted" | "follow_up" | "interested" | "quote_sent" | "won" | "not_interested" | "not_qualified" | "unresponsive";
 
 interface SessionUser {
@@ -86,6 +87,17 @@ interface AccessRole {
   system: boolean;
 }
 
+interface FaqEntry {
+  _id: string;
+  insurer: string;
+  product: string;
+  question: string;
+  answer: string;
+  active: boolean;
+  source: string;
+  updatedAt: string;
+}
+
 interface Lead {
   _id: string;
   source: string;
@@ -128,6 +140,7 @@ const viewPaths: Record<View, string> = {
   users: "/usuarios",
   roles: "/roles",
   leads: "/leads",
+  faqs: "/faqs",
   "highlevel-contacts": "/highlevel/contactos",
 };
 
@@ -294,6 +307,8 @@ const permissionOptions = [
   { value: "users.manage", label: "Habilitar usuarios y asignar roles" },
   { value: "roles.manage", label: "Crear y administrar roles" },
   { value: "highlevel.contacts.view", label: "Ver contactos de HighLevel" },
+  { value: "faqs.view", label: "Ver FAQs" },
+  { value: "faqs.manage", label: "Crear y administrar FAQs" },
 ];
 
 function RolesTable({ roles, loading, onReload }: { roles: AccessRole[]; loading: boolean; onReload: () => Promise<void> }) {
@@ -351,6 +366,64 @@ function RolesTable({ roles, loading, onReload }: { roles: AccessRole[]; loading
       locale={{ emptyText: <Empty description="Todavía no hay roles" /> }}
     />
   </>);
+}
+
+const emptyFaq = { insurer: "", product: "", question: "", answer: "", active: true, source: "manual" };
+
+function FaqsTable({ canManage }: { canManage: boolean }) {
+  const { message, modal } = AntApp.useApp();
+  const [faqs, setFaqs] = useState<FaqEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [insurer, setInsurer] = useState<string>();
+  const [product, setProduct] = useState<string>();
+  const [insurers, setInsurers] = useState<string[]>([]);
+  const [products, setProducts] = useState<string[]>([]);
+  const [editingFaq, setEditingFaq] = useState<FaqEntry | null>(null);
+  const [draft, setDraft] = useState(emptyFaq);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const loadFaqs = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      if (insurer) params.set("insurer", insurer);
+      if (product) params.set("product", product);
+      const data = await requestJson<{ faqs: FaqEntry[]; insurers: string[]; products: string[] }>(`/admin/faqs?${params}`);
+      setFaqs(data.faqs); setInsurers(data.insurers.sort()); setProducts(data.products.sort());
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar las FAQs"); }
+    finally { setLoading(false); }
+  }, [insurer, message, product, search]);
+
+  useEffect(() => { const timer = window.setTimeout(() => void loadFaqs(), 250); return () => window.clearTimeout(timer); }, [loadFaqs]);
+  const openNew = () => { setEditingFaq(null); setDraft(emptyFaq); setDrawerOpen(true); };
+  const openEdit = (faq: FaqEntry) => { setEditingFaq(faq); setDraft({ insurer: faq.insurer, product: faq.product, question: faq.question, answer: faq.answer, active: faq.active, source: faq.source }); setDrawerOpen(true); };
+  const saveFaq = async () => {
+    if (!draft.insurer.trim() || !draft.product.trim() || draft.question.trim().length < 5 || draft.answer.trim().length < 5) { message.error("Completá aseguradora, tipo de seguro, pregunta y respuesta"); return; }
+    setSaving(true);
+    try {
+      await requestJson(editingFaq ? `/admin/faqs/${editingFaq._id}` : "/admin/faqs", { method: editingFaq ? "PATCH" : "POST", body: JSON.stringify(draft) });
+      setDrawerOpen(false); await loadFaqs(); message.success(editingFaq ? "FAQ actualizada" : "FAQ creada");
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo guardar la FAQ"); }
+    finally { setSaving(false); }
+  };
+  const deleteFaq = (faq: FaqEntry) => modal.confirm({ title: "Eliminar pregunta", content: faq.question, okText: "Eliminar", cancelText: "Cancelar", okButtonProps: { danger: true }, onOk: async () => { await requestJson(`/admin/faqs/${faq._id}`, { method: "DELETE" }); await loadFaqs(); message.success("FAQ eliminada"); } });
+  const columns: TableColumnsType<FaqEntry> = [
+    { title: "Aseguradora", dataIndex: "insurer", key: "insurer", width: 140, render: (value: string) => <Tag color="blue">{value}</Tag> },
+    { title: "Seguro", dataIndex: "product", key: "product", width: 130, render: (value: string) => <Tag>{value}</Tag> },
+    { title: "Pregunta y respuesta", key: "content", render: (_, faq) => <div><Typography.Text strong>{faq.question}</Typography.Text><Typography.Paragraph ellipsis={{ rows: 2 }} type="secondary">{faq.answer}</Typography.Paragraph></div> },
+    { title: "Estado", dataIndex: "active", key: "active", width: 100, render: (active: boolean) => <Tag color={active ? "success" : "default"}>{active ? "Activa" : "Inactiva"}</Tag> },
+    { title: "", key: "actions", width: 100, render: (_, faq) => canManage && <Space><Button type="text" icon={<EditOutlined />} aria-label="Editar FAQ" onClick={() => openEdit(faq)} /><Button type="text" danger icon={<DeleteOutlined />} aria-label="Eliminar FAQ" onClick={() => deleteFaq(faq)} /></Space> },
+  ];
+  return <>
+    <Flex gap={12} wrap="wrap" className="faq-toolbar"><Input.Search allowClear placeholder="Buscar en preguntas y respuestas" value={search} onChange={(event) => setSearch(event.target.value)} /><Select allowClear placeholder="Aseguradora" value={insurer} onChange={setInsurer} options={insurers.map((value) => ({ value, label: value }))} /><Select allowClear placeholder="Tipo de seguro" value={product} onChange={setProduct} options={products.map((value) => ({ value, label: value }))} />{canManage && <Button type="primary" icon={<PlusOutlined />} onClick={openNew}>Nueva FAQ</Button>}</Flex>
+    <Table rowKey="_id" columns={columns} dataSource={faqs} loading={loading} pagination={{ pageSize: 15 }} scroll={{ x: 850 }} locale={{ emptyText: <Empty description="Todavía no hay preguntas frecuentes" /> }} />
+    <Drawer title={editingFaq ? "Editar FAQ" : "Nueva FAQ"} width={620} open={drawerOpen} onClose={() => setDrawerOpen(false)} extra={<Space><Button onClick={() => setDrawerOpen(false)}>Cancelar</Button><Button type="primary" loading={saving} onClick={() => void saveFaq()}>Guardar</Button></Space>}>
+      <div className="faq-form"><label>Aseguradora<Input placeholder="Ej: Allianz" value={draft.insurer} onChange={(event) => setDraft((current) => ({ ...current, insurer: event.target.value }))} /></label><label>Tipo de seguro<Input placeholder="Ej: Hogar" value={draft.product} onChange={(event) => setDraft((current) => ({ ...current, product: event.target.value }))} /></label><label>Pregunta<Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} value={draft.question} onChange={(event) => setDraft((current) => ({ ...current, question: event.target.value }))} /></label><label>Respuesta<Input.TextArea autoSize={{ minRows: 6, maxRows: 14 }} value={draft.answer} onChange={(event) => setDraft((current) => ({ ...current, answer: event.target.value }))} /></label><label className="faq-active"><Switch checked={draft.active} onChange={(active) => setDraft((current) => ({ ...current, active }))} /> Disponible para uso</label></div>
+    </Drawer>
+  </>;
 }
 
 function HighLevelContacts() {
@@ -634,9 +707,9 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   }, []);
 
   useEffect(() => {
-    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "highlevel-contacts" && can("highlevel.contacts.view"));
+    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "highlevel-contacts" && can("highlevel.contacts.view"));
     if (allowed) return;
-    const fallback: View | undefined = can("leads.view") ? "leads" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
+    const fallback: View | undefined = can("leads.view") ? "leads" : can("faqs.view") ? "faqs" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
     if (fallback) navigate(fallback);
   }, [can, navigate, view]);
 
@@ -676,6 +749,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <nav aria-label="Navegación principal">
           <Space>
             {can("leads.view") && <Button type="text" className="header-menu-button" icon={<ContactsOutlined />} onClick={() => navigate("leads")}>Leads</Button>}
+            {can("faqs.view") && <Button type="text" className="header-menu-button" icon={<SafetyCertificateOutlined />} onClick={() => navigate("faqs")}>FAQs</Button>}
             {(can("users.view") || can("roles.manage")) &&
             <Dropdown
               menu={{ items: userMenu, onClick: ({ key }) => navigate(key as View) }}
@@ -708,7 +782,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <Flex justify="space-between" align="center" gap={16} wrap="wrap" className="page-heading">
           <div>
             <Typography.Title level={2}>
-              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : "Contactos de HighLevel"}
+              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : "Contactos de HighLevel"}
             </Typography.Title>
             <Typography.Text type="secondary">
               {view === "users"
@@ -717,6 +791,8 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
                   ? "Creá roles y definí qué partes del sistema puede utilizar cada uno."
                   : view === "leads"
                     ? "Solicitudes recibidas desde los cotizadores y su estado de sincronización."
+                    : view === "faqs"
+                      ? "Base de preguntas y respuestas organizada por aseguradora y tipo de seguro."
                     : "Contactos sincronizados desde la subcuenta de Seguro a Tiempo."}
             </Typography.Text>
           </div>
@@ -734,6 +810,8 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
             can("roles.manage") ? <RolesTable roles={roles} loading={loading} onReload={loadRoles} /> : <Result status="403" title="Sin acceso" />
           ) : view === "leads" ? (
             can("leads.view") ? <LeadsTable canManage={can("leads.manage")} canDelete={can("leads.delete")} /> : <Result status="403" title="Sin acceso" />
+          ) : view === "faqs" ? (
+            can("faqs.view") ? <FaqsTable canManage={can("faqs.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : (
             can("highlevel.contacts.view") ? <HighLevelContacts /> : <Result status="403" title="Sin acceso" />
           )}

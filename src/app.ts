@@ -10,6 +10,7 @@ import { env } from "./config/env.js";
 import { connectToMongo, mongoStatus } from "./database/mongo.js";
 import { adminHighLevelRouter } from "./routes/admin-highlevel.js";
 import { adminRolesRouter } from "./routes/admin-roles.js";
+import { adminFaqsRouter } from "./routes/admin-faqs.js";
 import { adminLeadsRouter } from "./routes/admin-leads.js";
 import { adminUsersRouter } from "./routes/admin-users.js";
 import { authRouter } from "./routes/auth.js";
@@ -73,7 +74,7 @@ app.use(passport.session());
 const publicDirectory = path.join(process.cwd(), "public");
 app.use(express.static(publicDirectory));
 
-const panelRoutes = ["/usuarios", "/roles", "/leads", "/highlevel/contactos"];
+const panelRoutes = ["/usuarios", "/roles", "/leads", "/faqs", "/highlevel/contactos"];
 
 app.get("/permisos", (_request, response) => response.redirect(302, "/roles"));
 
@@ -94,6 +95,7 @@ app.use("/leads", leadsRouter);
 app.use("/admin/leads", adminLeadsRouter);
 app.use("/admin/users", adminUsersRouter);
 app.use("/admin/roles", adminRolesRouter);
+app.use("/admin/faqs", adminFaqsRouter);
 app.use("/admin/highlevel", adminHighLevelRouter);
 
 app.use((_request, response) => {
