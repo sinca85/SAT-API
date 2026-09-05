@@ -15,8 +15,8 @@ function cosine(a: number[], b: number[]) {
 
 export function consumeRateLimit(key: string) {
   const now = Date.now();
-  const values = (rate.get(key) ?? []).filter((timestamp) => now - timestamp < 60_000);
-  if (values.length >= env.AI_CHAT_RATE_PER_MINUTE) return false;
+  const values = (rate.get(key) ?? []).filter((timestamp) => now - timestamp < 86_400_000);
+  if (values.filter((timestamp) => now - timestamp < 60_000).length >= env.AI_CHAT_RATE_PER_MINUTE || values.length >= env.AI_CHAT_DAILY_RATE) return false;
   values.push(now); rate.set(key, values); return true;
 }
 
