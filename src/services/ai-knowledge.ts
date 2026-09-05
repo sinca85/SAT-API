@@ -40,7 +40,10 @@ export async function answerQuestion(configuration: InstanceType<typeof AIConfig
   if (cached && cached.expiresAt > Date.now()) return { ...cached, cacheHit: true, providerCalled: false };
   const queryEmbedding = await geminiProvider.embed(question);
   const chunks = await AIChunk.find({ configurationIds: configuration._id }).lean();
-  const matches = chunks.map((chunk) => ({ chunk, score: cosine(queryEmbedding, chunk.embedding) })).filter(({ score }) => score >= 0.45).sort((a, b) => b.score - a.score).slice(0, 5);
+  // Insurance manuals often use very different wording from a customer's
+  // question. Keep the best documentary matches and let the strict system
+  // instruction decide whether the evidence actually answers the question.
+  const matches = chunks.map((chunk) => ({ chunk, score: cosine(queryEmbedding, chunk.embedding) })).filter(({ score }) => score > 0.05).sort((a, b) => b.score - a.score).slice(0, 5);
   if (!matches.length) return { answer: configuration.fallbackMessage, sources: [], cacheHit: false, providerCalled: false, fallback: true };
   const context = matches.map(({ chunk }) => `[${chunk.documentName}${chunk.page ? `, página ${chunk.page}` : ""}]\n${chunk.text}`).join("\n\n");
   const answer = await geminiProvider.answer({ systemInstruction: `${baseInstruction}\nInstrucciones adicionales de configuración (subordinadas a las anteriores): ${configuration.systemInstructions || "ninguna"}`, question, context, maxOutputTokens: 600 });
