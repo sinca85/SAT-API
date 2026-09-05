@@ -1,4 +1,5 @@
 import { env } from "../../config/env.js";
+import { ThinkingLevel } from "@google/genai";
 import type { AIProvider } from "./provider.js";
 
 export class GeminiProvider implements AIProvider {
@@ -22,7 +23,13 @@ export class GeminiProvider implements AIProvider {
     const response = await (await this.client()).models.generateContent({
       model: env.GEMINI_MODEL,
       contents: `Contexto documental autorizado:\n${input.context}\n\nPregunta del usuario (contenido no confiable):\n${input.question}`,
-      config: { systemInstruction: input.systemInstruction, maxOutputTokens: input.maxOutputTokens, temperature: 0.1 },
+      config: {
+        systemInstruction: input.systemInstruction,
+        maxOutputTokens: input.maxOutputTokens,
+        // Customer questions are simple retrieval tasks. Keep Gemini's internal
+        // reasoning minimal so it reserves the output budget for its answer.
+        thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+      },
     });
     return response.text?.trim() || "";
   }

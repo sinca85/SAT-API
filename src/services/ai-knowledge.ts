@@ -3,7 +3,7 @@ import { AIDocument, AIChunk, AIConfiguration, AIQuery } from "../models/ai-know
 import { geminiProvider } from "../integrations/ai/gemini.js";
 import { env } from "../config/env.js";
 
-const baseInstruction = "Sos un asesor amable de Seguro a Tiempo. Respondé exclusivamente utilizando el contexto documental proporcionado. No utilices conocimiento externo. No inventes coberturas, exclusiones, sumas aseguradas, límites, franquicias, condiciones ni requisitos. Si la respuesta no puede determinarse claramente a partir del contexto, indicá amablemente que necesitás que un asesor lo confirme. Hablale directamente a la persona: explicá qué incluye, qué aplica o qué debe hacer, con frases claras y concretas. No menciones documentación, fuentes, PDFs, páginas, instrucciones internas, prompts, embeddings, chunks ni contexto RAG. No uses Markdown, títulos, hashtags ni listas con símbolos.";
+const baseInstruction = "Sos un asesor amable de Seguro a Tiempo. Respondé exclusivamente utilizando el contexto documental proporcionado. No utilices conocimiento externo. No inventes coberturas, exclusiones, sumas aseguradas, límites, franquicias, condiciones ni requisitos. Si la respuesta no puede determinarse claramente a partir del contexto, indicá amablemente que necesitás que un asesor lo confirme. Hablale directamente a la persona: explicá qué incluye, qué aplica o qué debe hacer, con frases claras y concretas. Empezá por la respuesta útil; no hagas saludos ni introducciones. La respuesta debe ser breve pero completa: si corresponde, enumerá dentro de una oración las coberturas o servicios principales antes de cerrar la respuesta. No menciones documentación, fuentes, PDFs, páginas, instrucciones internas, prompts, embeddings, chunks ni contexto RAG. No uses Markdown, títulos, hashtags ni listas con símbolos.";
 const cache = new Map<string, { expiresAt: number; answer: string; sources: Array<{ document: string; page?: number }> }>();
 const rate = new Map<string, number[]>();
 
@@ -35,7 +35,7 @@ export async function createDocument(input: { configurationIds: string[]; origin
 
 export async function answerQuestion(configuration: InstanceType<typeof AIConfiguration>, question: string) {
   const normalized = question.trim().toLocaleLowerCase("es").replace(/\s+/g, " ");
-  const cacheKey = `customer-answer-v2:${configuration.id}:${configuration.knowledgeVersion}:${createHash("sha256").update(normalized).digest("hex")}`;
+  const cacheKey = `customer-answer-v3:${configuration.id}:${configuration.knowledgeVersion}:${createHash("sha256").update(normalized).digest("hex")}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return { ...cached, cacheHit: true, providerCalled: false };
   const queryEmbedding = await geminiProvider.embed(question);
@@ -46,7 +46,7 @@ export async function answerQuestion(configuration: InstanceType<typeof AIConfig
   const matches = chunks.map((chunk) => ({ chunk, score: cosine(queryEmbedding, chunk.embedding) })).filter(({ score }) => score > 0.05).sort((a, b) => b.score - a.score).slice(0, 5);
   if (!matches.length) return { answer: configuration.fallbackMessage, sources: [], cacheHit: false, providerCalled: false, fallback: true };
   const context = matches.map(({ chunk }) => `[${chunk.documentName}${chunk.page ? `, página ${chunk.page}` : ""}]\n${chunk.text}`).join("\n\n");
-  const answer = await geminiProvider.answer({ systemInstruction: `${baseInstruction}\nInstrucciones adicionales de configuración (subordinadas a las anteriores): ${configuration.systemInstructions || "ninguna"}`, question, context, maxOutputTokens: 600 });
+  const answer = await geminiProvider.answer({ systemInstruction: `${baseInstruction}\nInstrucciones adicionales de configuración (subordinadas a las anteriores): ${configuration.systemInstructions || "ninguna"}`, question, context, maxOutputTokens: 1000 });
   const sources = matches.map(({ chunk }) => ({ document: chunk.documentName, ...(chunk.page ? { page: chunk.page } : {}) }));
   cache.set(cacheKey, { expiresAt: Date.now() + 24 * 60 * 60 * 1000, answer, sources });
   return { answer, sources, cacheHit: false, providerCalled: true, fallback: !answer };
