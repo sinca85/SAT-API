@@ -66,7 +66,8 @@ aiAdminRouter.post("/configurations", async (request, response) => {
 aiAdminRouter.patch("/configurations/:configurationId", async (request, response) => {
   if (!canManage(request)) { response.status(403).json({ error: "Insufficient permissions" }); return; }
   const input = configurationInput.partial().parse(request.body);
-  const configuration = await AIConfiguration.findByIdAndUpdate(request.params.configurationId, { ...input, updatedBy: request.user!.id }, { new: true, runValidators: true });
+  const invalidateAnswers = input.outOfScopeMessage !== undefined || input.systemInstructions !== undefined;
+  const configuration = await AIConfiguration.findByIdAndUpdate(request.params.configurationId, { $set: { ...input, updatedBy: request.user!.id }, ...(invalidateAnswers ? { $inc: { knowledgeVersion: 1 } } : {}) }, { new: true, runValidators: true });
   if (!configuration) { response.status(404).json({ error: "Configuration not found" }); return; }
   response.json({ configuration });
 });
