@@ -71,7 +71,9 @@ aiAdminRouter.post("/configurations/:configurationId/documents", upload.array("f
   const documents = [];
   let pdfParse: (buffer: Buffer) => Promise<{ text: string }>;
   try {
-    const module = await import("pdf-parse");
+    // Import the parser implementation directly. The package root of
+    // pdf-parse@1.x runs its bundled test harness when loaded through ESM.
+    const module = await import("pdf-parse/lib/pdf-parse.js");
     pdfParse = (module.default ?? module) as unknown as typeof pdfParse;
   } catch (error) {
     response.status(200).json({ documents: files.map((file) => ({ name: file.originalname, status: "error", chunkCount: 0, error: error instanceof Error ? error.message : "No se pudo cargar el lector PDF" })) });
