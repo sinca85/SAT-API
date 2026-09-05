@@ -35,7 +35,18 @@ aiRouter.post("/chat/:slug", async (request, response) => {
 });
 
 export const aiAdminRouter = Router();
-aiAdminRouter.use(requireAuthentication, requireActiveUser, requirePermission("ai.view"));
+aiAdminRouter.use((request, response, next) => {
+  // Blob invokes the signed completion callback without the administrator's
+  // browser session. handleUpload verifies its Vercel signature below.
+  if (request.path === "/blob-upload" && request.body?.type === "blob.upload-completed") { next(); return; }
+  requireAuthentication(request, response, (error) => {
+    if (error) { next(error); return; }
+    requireActiveUser(request, response, (activeError) => {
+      if (activeError) { next(activeError); return; }
+      requirePermission("ai.view")(request, response, next);
+    });
+  });
+});
 const configurationInput = z.object({ name: z.string().trim().min(2).max(120), slug: z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(120), company: z.string().trim().min(2).max(80), product: z.string().trim().min(2).max(80), title: z.string().trim().max(180).default(""), placeholder: z.string().trim().max(240).default("¿Qué querés saber?"), welcomeMessage: z.string().trim().max(500).default(""), fallbackMessage: z.string().trim().min(5).max(500), systemInstructions: z.string().trim().max(4000).default(""), active: z.boolean().default(false) });
 const canManage = (request: import("express").Request) => request.user!.permissions.includes("*") || request.user!.permissions.includes("ai.manage");
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: env.AI_MAX_DOCUMENT_BYTES, files: 20 }, fileFilter: (_request, file, callback) => callback(null, file.mimetype === "application/pdf") });
@@ -102,15 +113,25 @@ aiAdminRouter.post("/configurations/:configurationId/documents", upload.array("f
 });
 
 aiAdminRouter.post("/blob-upload", async (request, response) => {
-  if (!canManage(request)) { response.status(403).json({ error: "Insufficient permissions" }); return; }
+  const isCallback = request.body?.type === "blob.upload-completed";
+  if (!isCallback && !canManage(request)) { response.status(403).json({ error: "Insufficient permissions" }); return; }
   if (!env.BLOB_READ_WRITE_TOKEN) { response.status(503).json({ error: "Vercel Blob is not configured" }); return; }
   const result = await handleUpload({
     request,
     body: request.body as HandleUploadBody,
     token: env.BLOB_READ_WRITE_TOKEN,
-    onBeforeGenerateToken: async (pathname) => {
+    onBeforeGenerateToken: async (pathname, clientPayload) => {
       if (!pathname.startsWith("ai-documents/")) throw new Error("Invalid upload path");
-      return { allowedContentTypes: ["application/pdf"], maximumSizeInBytes: 100 * 1024 * 1024, addRandomSuffix: true };
+      return { allowedContentTypes: ["application/pdf"], maximumSizeInBytes: 100 * 1024 * 1024, addRandomSuffix: true, tokenPayload: clientPayload };
+    },
+    onUploadCompleted: async ({ blob, tokenPayload }) => {
+      const metadata = z.object({ configurationId: z.string(), originalName: z.string(), sizeBytes: z.number().int().positive() }).parse(JSON.parse(tokenPayload ?? "{}"));
+      const configuration = await AIConfiguration.findById(metadata.configurationId);
+      if (!configuration) throw new Error("Configuration not found after upload");
+      const privateBlob = await get(blob.url, { access: "private", token: env.BLOB_READ_WRITE_TOKEN });
+      if (!privateBlob) throw new Error("Blob not found after upload");
+      const buffer = Buffer.from(await new Response(privateBlob.stream).arrayBuffer());
+      await processPdfBuffer({ configurationId: metadata.configurationId, originalName: metadata.originalName, sizeBytes: metadata.sizeBytes, buffer, uploadedBy: String(configuration.get("createdBy")), blobUrl: blob.url });
     },
   });
   response.json(result);
