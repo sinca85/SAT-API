@@ -35,7 +35,7 @@ export async function createDocument(input: { configurationIds: string[]; origin
 
 export async function answerQuestion(configuration: InstanceType<typeof AIConfiguration>, question: string) {
   const normalized = question.trim().toLocaleLowerCase("es").replace(/\s+/g, " ");
-  const cacheKey = `customer-answer-v3:${configuration.id}:${configuration.knowledgeVersion}:${createHash("sha256").update(normalized).digest("hex")}`;
+  const cacheKey = `customer-answer-v4:${configuration.id}:${configuration.knowledgeVersion}:${createHash("sha256").update(normalized).digest("hex")}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return { ...cached, cacheHit: true, providerCalled: false };
   const queryEmbedding = await geminiProvider.embed(question);
@@ -46,7 +46,9 @@ export async function answerQuestion(configuration: InstanceType<typeof AIConfig
   const matches = chunks.map((chunk) => ({ chunk, score: cosine(queryEmbedding, chunk.embedding) })).filter(({ score }) => score > 0.05).sort((a, b) => b.score - a.score).slice(0, 5);
   if (!matches.length) return { answer: configuration.fallbackMessage, sources: [], cacheHit: false, providerCalled: false, fallback: true };
   const context = matches.map(({ chunk }) => `[${chunk.documentName}${chunk.page ? `, página ${chunk.page}` : ""}]\n${chunk.text}`).join("\n\n");
-  const answer = await geminiProvider.answer({ systemInstruction: `${baseInstruction}\nInstrucciones adicionales de configuración (subordinadas a las anteriores): ${configuration.systemInstructions || "ninguna"}`, question, context, maxOutputTokens: 1000 });
+  const defaultOutOfScopeMessage = `Puedo ayudarte únicamente con consultas sobre el seguro de ${configuration.product}.`;
+  const outOfScopeMessage = !configuration.outOfScopeMessage || configuration.outOfScopeMessage === "Puedo ayudarte únicamente con consultas sobre este seguro." ? defaultOutOfScopeMessage : configuration.outOfScopeMessage;
+  const answer = await geminiProvider.answer({ systemInstruction: `${baseInstruction}\nPrimero verificá si la pregunta trata sobre el seguro, el producto, sus coberturas, asistencia, contratación, siniestros o condiciones. Si no tiene relación con ese tema (por ejemplo fecha, clima, noticias, entretenimiento, tecnología o conversaciones generales), respondé exactamente este mensaje y nada más: ${outOfScopeMessage}\nInstrucciones adicionales de configuración (subordinadas a las anteriores): ${configuration.systemInstructions || "ninguna"}`, question, context, maxOutputTokens: 1000 });
   const sources = matches.map(({ chunk }) => ({ document: chunk.documentName, ...(chunk.page ? { page: chunk.page } : {}) }));
   cache.set(cacheKey, { expiresAt: Date.now() + 24 * 60 * 60 * 1000, answer, sources });
   return { answer, sources, cacheHit: false, providerCalled: true, fallback: !answer };

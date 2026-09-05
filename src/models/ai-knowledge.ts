@@ -9,6 +9,7 @@ const aiConfigurationSchema = new Schema({
   placeholder: { type: String, default: "¿Qué querés saber?", trim: true, maxlength: 240 },
   welcomeMessage: { type: String, default: "", trim: true, maxlength: 500 },
   fallbackMessage: { type: String, required: true, trim: true, maxlength: 500 },
+  outOfScopeMessage: { type: String, required: true, trim: true, maxlength: 500, default: "Puedo ayudarte únicamente con consultas sobre este seguro." },
   systemInstructions: { type: String, default: "", trim: true, maxlength: 4000 },
   active: { type: Boolean, default: false, index: true },
   knowledgeVersion: { type: Number, default: 1, required: true },
