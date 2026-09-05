@@ -6,6 +6,7 @@ import {
   GoogleOutlined,
   LogoutOutlined,
   PlusOutlined,
+  UploadOutlined,
   ContactsOutlined,
   PushpinFilled,
   PushpinOutlined,
@@ -38,11 +39,11 @@ import {
   type MenuProps,
   type TableColumnsType,
 } from "antd";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
 type UserRole = "admin" | "user";
 type UserStatus = "pending" | "active" | "disabled";
-type View = "users" | "roles" | "highlevel-contacts" | "leads" | "faqs";
+type View = "users" | "roles" | "highlevel-contacts" | "leads" | "faqs" | "ai";
 type LeadStatus = "new" | "pending_contact" | "contacted" | "follow_up" | "interested" | "quote_sent" | "won" | "not_interested" | "not_qualified" | "unresponsive";
 
 interface SessionUser {
@@ -98,6 +99,8 @@ interface FaqEntry {
   updatedAt: string;
 }
 
+type FaqImportEntry = Omit<FaqEntry, "_id" | "updatedAt">;
+
 interface Lead {
   _id: string;
   source: string;
@@ -142,6 +145,7 @@ const viewPaths: Record<View, string> = {
   leads: "/leads",
   faqs: "/faqs",
   "highlevel-contacts": "/highlevel/contactos",
+  ai: "/ia",
 };
 
 function viewFromPath(pathname: string): View {
@@ -383,6 +387,33 @@ function FaqsTable({ canManage }: { canManage: boolean }) {
   const [draft, setDraft] = useState(emptyFaq);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importing, setImporting] = useState(false);
+  const importFileRef = useRef<HTMLInputElement>(null);
+
+  const parsedImport = useMemo(() => {
+    if (!importText.trim()) return { entries: [] as FaqImportEntry[], error: "" };
+    try {
+      const parsed: unknown = JSON.parse(importText);
+      const values = Array.isArray(parsed) ? parsed : (parsed as { faqs?: unknown })?.faqs;
+      if (!Array.isArray(values) || values.length === 0) throw new Error("El JSON debe contener una lista de FAQs.");
+      if (values.length > 500) throw new Error("Podés importar hasta 500 FAQs por vez.");
+      const entries = values.map((value, index) => {
+        if (!value || typeof value !== "object") throw new Error(`La FAQ ${index + 1} no es válida.`);
+        const item = value as Record<string, unknown>;
+        const insurer = typeof item.insurer === "string" ? item.insurer.trim() : "";
+        const product = typeof item.product === "string" ? item.product.trim() : "";
+        const question = typeof item.question === "string" ? item.question.trim() : "";
+        const answer = typeof item.answer === "string" ? item.answer.trim() : "";
+        if (insurer.length < 2 || product.length < 2 || question.length < 5 || answer.length < 5) throw new Error(`Revisá aseguradora, seguro, pregunta y respuesta en la FAQ ${index + 1}.`);
+        return { insurer, product, question, answer, active: typeof item.active === "boolean" ? item.active : true, source: typeof item.source === "string" ? item.source.trim() : "importación JSON" };
+      });
+      return { entries, error: "" };
+    } catch (error) {
+      return { entries: [] as FaqImportEntry[], error: error instanceof Error ? error.message : "El JSON no es válido." };
+    }
+  }, [importText]);
 
   const loadFaqs = useCallback(async () => {
     setLoading(true);
@@ -410,6 +441,24 @@ function FaqsTable({ canManage }: { canManage: boolean }) {
     finally { setSaving(false); }
   };
   const deleteFaq = (faq: FaqEntry) => modal.confirm({ title: "Eliminar pregunta", content: faq.question, okText: "Eliminar", cancelText: "Cancelar", okButtonProps: { danger: true }, onOk: async () => { await requestJson(`/admin/faqs/${faq._id}`, { method: "DELETE" }); await loadFaqs(); message.success("FAQ eliminada"); } });
+  const selectImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".json")) { message.error("Seleccioná un archivo .json"); return; }
+    if (file.size > 1_000_000) { message.error("El archivo no puede superar 1 MB"); return; }
+    setImportText(await file.text());
+  };
+  const importFaqs = async () => {
+    if (!parsedImport.entries.length || parsedImport.error) return;
+    setImporting(true);
+    try {
+      const result = await requestJson<{ total: number; created: number; updated: number }>("/admin/faqs/import", { method: "POST", body: JSON.stringify({ faqs: parsedImport.entries }) });
+      setImportOpen(false); setImportText(""); await loadFaqs();
+      message.success(`${result.total} FAQs procesadas: ${result.created} nuevas y ${result.updated} actualizadas`);
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron importar las FAQs"); }
+    finally { setImporting(false); }
+  };
   const columns: TableColumnsType<FaqEntry> = [
     { title: "Aseguradora", dataIndex: "insurer", key: "insurer", width: 140, render: (value: string) => <Tag color="blue">{value}</Tag> },
     { title: "Seguro", dataIndex: "product", key: "product", width: 130, render: (value: string) => <Tag>{value}</Tag> },
@@ -418,10 +467,19 @@ function FaqsTable({ canManage }: { canManage: boolean }) {
     { title: "", key: "actions", width: 100, render: (_, faq) => canManage && <Space><Button type="text" icon={<EditOutlined />} aria-label="Editar FAQ" onClick={() => openEdit(faq)} /><Button type="text" danger icon={<DeleteOutlined />} aria-label="Eliminar FAQ" onClick={() => deleteFaq(faq)} /></Space> },
   ];
   return <>
-    <Flex gap={12} wrap="wrap" className="faq-toolbar"><Input.Search allowClear placeholder="Buscar en preguntas y respuestas" value={search} onChange={(event) => setSearch(event.target.value)} /><Select allowClear placeholder="Aseguradora" value={insurer} onChange={setInsurer} options={insurers.map((value) => ({ value, label: value }))} /><Select allowClear placeholder="Tipo de seguro" value={product} onChange={setProduct} options={products.map((value) => ({ value, label: value }))} />{canManage && <Button type="primary" icon={<PlusOutlined />} onClick={openNew}>Nueva FAQ</Button>}</Flex>
+    <Flex gap={12} wrap="wrap" className="faq-toolbar"><Input.Search allowClear placeholder="Buscar en preguntas y respuestas" value={search} onChange={(event) => setSearch(event.target.value)} /><Select allowClear placeholder="Aseguradora" value={insurer} onChange={setInsurer} options={insurers.map((value) => ({ value, label: value }))} /><Select allowClear placeholder="Tipo de seguro" value={product} onChange={setProduct} options={products.map((value) => ({ value, label: value }))} />{canManage && <><Button icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>Importar JSON</Button><Button type="primary" icon={<PlusOutlined />} onClick={openNew}>Nueva FAQ</Button></>}</Flex>
     <Table rowKey="_id" columns={columns} dataSource={faqs} loading={loading} pagination={{ pageSize: 15 }} scroll={{ x: 850 }} locale={{ emptyText: <Empty description="Todavía no hay preguntas frecuentes" /> }} />
     <Drawer title={editingFaq ? "Editar FAQ" : "Nueva FAQ"} width={620} open={drawerOpen} onClose={() => setDrawerOpen(false)} extra={<Space><Button onClick={() => setDrawerOpen(false)}>Cancelar</Button><Button type="primary" loading={saving} onClick={() => void saveFaq()}>Guardar</Button></Space>}>
       <div className="faq-form"><label>Aseguradora<Input placeholder="Ej: Allianz" value={draft.insurer} onChange={(event) => setDraft((current) => ({ ...current, insurer: event.target.value }))} /></label><label>Tipo de seguro<Input placeholder="Ej: Hogar" value={draft.product} onChange={(event) => setDraft((current) => ({ ...current, product: event.target.value }))} /></label><label>Pregunta<Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} value={draft.question} onChange={(event) => setDraft((current) => ({ ...current, question: event.target.value }))} /></label><label>Respuesta<Input.TextArea autoSize={{ minRows: 6, maxRows: 14 }} value={draft.answer} onChange={(event) => setDraft((current) => ({ ...current, answer: event.target.value }))} /></label><label className="faq-active"><Switch checked={draft.active} onChange={(active) => setDraft((current) => ({ ...current, active }))} /> Disponible para uso</label></div>
+    </Drawer>
+    <Drawer title="Importar FAQs desde JSON" width={720} open={importOpen} onClose={() => setImportOpen(false)} extra={<Space><Button onClick={() => setImportOpen(false)}>Cancelar</Button><Button type="primary" loading={importing} disabled={!parsedImport.entries.length || Boolean(parsedImport.error)} onClick={() => void importFaqs()}>Importar {parsedImport.entries.length || ""}</Button></Space>}>
+      <div className="faq-import">
+        <Typography.Paragraph type="secondary">Pegá una lista JSON o seleccioná un archivo. Si ya existe la misma aseguradora, seguro y pregunta, se actualizará sin crear duplicados.</Typography.Paragraph>
+        <div><Button icon={<UploadOutlined />} onClick={() => importFileRef.current?.click()}>Seleccionar archivo .json</Button><input ref={importFileRef} className="faq-file-input" type="file" accept="application/json,.json" onChange={(event) => void selectImportFile(event)} /></div>
+        <Input.TextArea value={importText} onChange={(event) => setImportText(event.target.value)} placeholder={'[{"insurer":"allianz","product":"hogar","question":"¿Qué cubre?","answer":"...","active":true,"source":"manual"}]'} autoSize={{ minRows: 12, maxRows: 22 }} />
+        {parsedImport.error && <Typography.Text type="danger">{parsedImport.error}</Typography.Text>}
+        {!parsedImport.error && parsedImport.entries.length > 0 && <><Typography.Text type="success">{parsedImport.entries.length} FAQs listas para importar</Typography.Text><Table size="small" rowKey={(_, index) => String(index)} dataSource={parsedImport.entries.slice(0, 10)} pagination={false} columns={[{ title: "Aseguradora", dataIndex: "insurer", width: 120 }, { title: "Seguro", dataIndex: "product", width: 100 }, { title: "Pregunta", dataIndex: "question" }]} /><Typography.Text type="secondary">{parsedImport.entries.length > 10 ? `Vista previa de las primeras 10 de ${parsedImport.entries.length}.` : "Revisá la vista previa antes de importar."}</Typography.Text></>}
+      </div>
     </Drawer>
   </>;
 }
@@ -660,6 +718,20 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
   </>;
 }
 
+function AIKnowledgePanel({ canManage }: { canManage: boolean }) {
+  const { message } = AntApp.useApp();
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [draft, setDraft] = useState({ name: "", slug: "", company: "Allianz", product: "Hogar", title: "", fallbackMessage: "No encontré esa información en la documentación disponible." });
+  const load = useCallback(async () => { setLoading(true); try { const data = await requestJson<{ configurations: any[] }>("/admin/ai/configurations"); setItems(data.configurations); } catch (e) { message.error(e instanceof Error ? e.message : "No se pudo cargar IA"); } finally { setLoading(false); } }, [message]);
+  useEffect(() => { void load(); }, [load]);
+  const create = async () => { try { await requestJson("/admin/ai/configurations", { method: "POST", body: JSON.stringify({ ...draft, active: true, placeholder: "¿Qué querés saber?", welcomeMessage: "Consultá sobre tu seguro.", systemInstructions: "" }) }); setDraft({ name: "", slug: "", company: "Allianz", product: "Hogar", title: "", fallbackMessage: "No encontré esa información en la documentación disponible." }); await load(); message.success("Asistente creado"); } catch (e) { message.error(e instanceof Error ? e.message : "No se pudo crear"); } };
+  return <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    {canManage && <div className="ai-create-card"><Typography.Title level={4}>Nuevo asistente documental</Typography.Title><Typography.Text type="secondary">Asociá una base de conocimiento a una aseguradora y producto.</Typography.Text><Flex gap={12} wrap="wrap" style={{ marginTop: 16 }}><Input placeholder="Nombre" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} /><Input placeholder="Slug (ej. allianz-hogar)" value={draft.slug} onChange={e => setDraft({ ...draft, slug: e.target.value })} /><Input placeholder="Aseguradora" value={draft.company} onChange={e => setDraft({ ...draft, company: e.target.value })} /><Input placeholder="Tipo de seguro" value={draft.product} onChange={e => setDraft({ ...draft, product: e.target.value })} /><Input placeholder="Título público" value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} /><Button type="primary" icon={<PlusOutlined />} onClick={() => void create()} disabled={!draft.name || !draft.slug}>Crear asistente</Button></Flex></div>}
+    <Table loading={loading} rowKey="_id" dataSource={items} columns={[{ title: "Asistente", render: (_: unknown, x: any) => <Space direction="vertical" size={0}><Typography.Text strong>{x.name}</Typography.Text><Typography.Text type="secondary">/{x.slug}</Typography.Text></Space> }, { title: "Aseguradora", dataIndex: "company" }, { title: "Producto", dataIndex: "product" }, { title: "Estado", dataIndex: "active", render: (v: boolean) => <Tag color={v ? "green" : "default"}>{v ? "Activo" : "Inactivo"}</Tag> }, { title: "Versión", dataIndex: "knowledgeVersion" }]} locale={{ emptyText: <Empty description="Todavía no hay asistentes de IA" /> }} />
+  </Space>;
+}
+
 function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   const { message } = AntApp.useApp();
   const can = useCallback((permission: string) => sessionUser.permissions.includes("*") || sessionUser.permissions.includes(permission), [sessionUser.permissions]);
@@ -707,9 +779,9 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   }, []);
 
   useEffect(() => {
-    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "highlevel-contacts" && can("highlevel.contacts.view"));
+    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "ai" && can("ai.view")) || (view === "highlevel-contacts" && can("highlevel.contacts.view"));
     if (allowed) return;
-    const fallback: View | undefined = can("leads.view") ? "leads" : can("faqs.view") ? "faqs" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
+    const fallback: View | undefined = can("leads.view") ? "leads" : can("faqs.view") ? "faqs" : can("ai.view") ? "ai" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
     if (fallback) navigate(fallback);
   }, [can, navigate, view]);
 
@@ -750,6 +822,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
           <Space>
             {can("leads.view") && <Button type="text" className="header-menu-button" icon={<ContactsOutlined />} onClick={() => navigate("leads")}>Leads</Button>}
             {can("faqs.view") && <Button type="text" className="header-menu-button" icon={<SafetyCertificateOutlined />} onClick={() => navigate("faqs")}>FAQs</Button>}
+            {can("ai.view") && <Button type="text" className="header-menu-button" icon={<SafetyCertificateOutlined />} onClick={() => navigate("ai")}>IA</Button>}
             {(can("users.view") || can("roles.manage")) &&
             <Dropdown
               menu={{ items: userMenu, onClick: ({ key }) => navigate(key as View) }}
@@ -782,7 +855,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <Flex justify="space-between" align="center" gap={16} wrap="wrap" className="page-heading">
           <div>
             <Typography.Title level={2}>
-              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : "Contactos de HighLevel"}
+              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : view === "ai" ? "Inteligencia artificial" : "Contactos de HighLevel"}
             </Typography.Title>
             <Typography.Text type="secondary">
               {view === "users"
@@ -793,7 +866,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
                     ? "Solicitudes recibidas desde los cotizadores y su estado de sincronización."
                     : view === "faqs"
                       ? "Base de preguntas y respuestas organizada por aseguradora y tipo de seguro."
-                    : "Contactos sincronizados desde la subcuenta de Seguro a Tiempo."}
+                    : view === "ai" ? "Asistentes y bases de conocimiento por aseguradora y tipo de seguro." : "Contactos sincronizados desde la subcuenta de Seguro a Tiempo."}
             </Typography.Text>
           </div>
           {view === "users" && (
@@ -812,6 +885,8 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
             can("leads.view") ? <LeadsTable canManage={can("leads.manage")} canDelete={can("leads.delete")} /> : <Result status="403" title="Sin acceso" />
           ) : view === "faqs" ? (
             can("faqs.view") ? <FaqsTable canManage={can("faqs.manage")} /> : <Result status="403" title="Sin acceso" />
+          ) : view === "ai" ? (
+            can("ai.view") ? <AIKnowledgePanel canManage={can("ai.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : (
             can("highlevel.contacts.view") ? <HighLevelContacts /> : <Result status="403" title="Sin acceso" />
           )}
