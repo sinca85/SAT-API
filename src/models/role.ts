@@ -10,6 +10,8 @@ export const accessPermissions = [
   "highlevel.contacts.view",
   "faqs.view",
   "faqs.manage",
+  "ai.view",
+  "ai.manage",
 ] as const;
 
 export type AccessPermission = (typeof accessPermissions)[number] | "*";

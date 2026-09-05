@@ -15,6 +15,7 @@ import { adminLeadsRouter } from "./routes/admin-leads.js";
 import { adminUsersRouter } from "./routes/admin-users.js";
 import { authRouter } from "./routes/auth.js";
 import { leadsRouter } from "./routes/leads.js";
+import { aiRouter, aiAdminRouter } from "./routes/ai.js";
 
 export const app = express();
 
@@ -92,6 +93,8 @@ app.get("/health", (_request, response) => {
 
 app.use("/auth", authRouter);
 app.use("/leads", leadsRouter);
+app.use("/api/ai", aiRouter);
+app.use("/admin/ai", aiAdminRouter);
 app.use("/admin/leads", adminLeadsRouter);
 app.use("/admin/users", adminUsersRouter);
 app.use("/admin/roles", adminRolesRouter);
