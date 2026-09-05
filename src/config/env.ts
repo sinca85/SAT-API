@@ -24,7 +24,7 @@ const envSchema = z.object({
   HIGHLEVEL_CLIENT_ID: z.string().optional(),
   HIGHLEVEL_CLIENT_SECRET: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
-  GEMINI_MODEL: z.string().default("gemini-2.0-flash"),
+  GEMINI_MODEL: z.string().default("gemini-3.6-flash"),
   GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-001"),
   AI_CHAT_RATE_PER_MINUTE: z.coerce.number().int().positive().default(5),
   AI_CHAT_DAILY_RATE: z.coerce.number().int().positive().default(30),
