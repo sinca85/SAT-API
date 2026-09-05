@@ -71,13 +71,17 @@ aiAdminRouter.post("/configurations/:configurationId/documents", upload.array("f
   const { PDFParse } = await import("pdf-parse");
   const documents = [];
   for (const file of files) {
-    const parser = new PDFParse({ data: file.buffer });
-    const parsed = await parser.getText();
-    await parser.destroy();
-    const document = await createDocument({ configurationIds: [configuration.id], originalName: file.originalname, sizeBytes: file.size, text: parsed.text, uploadedBy: request.user!.id });
-    documents.push({ id: document.id, status: document.status, chunkCount: document.chunkCount, error: document.error });
+    try {
+      const parser = new PDFParse({ data: file.buffer });
+      const parsed = await parser.getText();
+      await parser.destroy();
+      const document = await createDocument({ configurationIds: [configuration.id], originalName: file.originalname, sizeBytes: file.size, text: parsed.text, uploadedBy: request.user!.id });
+      documents.push({ id: document.id, name: file.originalname, status: document.status, chunkCount: document.chunkCount, error: document.error });
+    } catch (error) {
+      documents.push({ name: file.originalname, status: "error", chunkCount: 0, error: error instanceof Error ? error.message : "PDF processing failed" });
+    }
   }
-  response.status(documents.every((document) => document.status === "ready") ? 201 : 500).json({ documents });
+  response.status(200).json({ documents });
 });
 
 aiAdminRouter.get("/documents/:configurationId", async (request, response) => {
