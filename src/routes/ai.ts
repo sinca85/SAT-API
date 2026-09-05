@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import multer from "multer";
 import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
-import { AIConfiguration, AIQuery, AIDocument } from "../models/ai-knowledge.js";
+import { AIConfiguration, AIQuery, AIDocument, AIChunk } from "../models/ai-knowledge.js";
 import { answerQuestion, consumeRateLimit, createDocument } from "../services/ai-knowledge.js";
 import { env } from "../config/env.js";
 
@@ -82,6 +82,15 @@ aiAdminRouter.post("/configurations/:configurationId/documents", upload.array("f
     }
   }
   response.status(200).json({ documents });
+});
+
+aiAdminRouter.delete("/documents/:documentId", async (request, response) => {
+  if (!canManage(request)) { response.status(403).json({ error: "Insufficient permissions" }); return; }
+  const document = await AIDocument.findByIdAndDelete(request.params.documentId);
+  if (!document) { response.status(404).json({ error: "Document not found" }); return; }
+  await AIChunk.deleteMany({ documentId: document._id });
+  await AIConfiguration.updateMany({ _id: { $in: document.configurationIds } }, { $inc: { knowledgeVersion: 1 } });
+  response.status(204).end();
 });
 
 aiAdminRouter.get("/documents/:configurationId", async (request, response) => {
