@@ -1,5 +1,4 @@
 import { Router } from "express";
-import pdfParse from "pdf-parse";
 import { z } from "zod";
 import multer from "multer";
 import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
@@ -70,6 +69,14 @@ aiAdminRouter.post("/configurations/:configurationId/documents", upload.array("f
   const files = (request.files as Express.Multer.File[] | undefined) ?? [];
   if (!files.length) { response.status(400).json({ error: "At least one PDF file is required" }); return; }
   const documents = [];
+  let pdfParse: (buffer: Buffer) => Promise<{ text: string }>;
+  try {
+    const module = await import("pdf-parse");
+    pdfParse = (module.default ?? module) as unknown as typeof pdfParse;
+  } catch (error) {
+    response.status(200).json({ documents: files.map((file) => ({ name: file.originalname, status: "error", chunkCount: 0, error: error instanceof Error ? error.message : "No se pudo cargar el lector PDF" })) });
+    return;
+  }
   for (const file of files) {
     try {
       const parsed = await pdfParse(file.buffer);
