@@ -22,6 +22,7 @@ const aiDocumentSchema = new Schema({
   storedName: { type: String, required: true, trim: true, maxlength: 255 },
   mimeType: { type: String, required: true, enum: ["application/pdf"] },
   sizeBytes: { type: Number, required: true },
+  blobUrl: String,
   status: { type: String, enum: ["pending", "processing", "ready", "error"], default: "pending", index: true },
   pageCount: Number,
   chunkCount: { type: Number, default: 0 },

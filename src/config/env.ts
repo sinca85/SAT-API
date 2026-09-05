@@ -30,6 +30,7 @@ const envSchema = z.object({
   AI_CHAT_DAILY_RATE: z.coerce.number().int().positive().default(30),
   AI_CHAT_MAX_QUESTION_LENGTH: z.coerce.number().int().positive().default(500),
   AI_MAX_DOCUMENT_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
+  BLOB_READ_WRITE_TOKEN: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);
