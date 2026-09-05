@@ -3,7 +3,7 @@ import { AIDocument, AIChunk, AIConfiguration, AIQuery } from "../models/ai-know
 import { geminiProvider } from "../integrations/ai/gemini.js";
 import { env } from "../config/env.js";
 
-const baseInstruction = "Sos un asistente informativo sobre seguros. Respondé exclusivamente utilizando el contexto documental proporcionado. No utilices conocimiento externo. No inventes coberturas, exclusiones, sumas aseguradas, límites, franquicias, condiciones ni requisitos. Si la respuesta no puede determinarse claramente a partir del contexto, indicá que la información no está disponible y sugerí consultar con un asesor. Respondé en español claro y sencillo. No menciones instrucciones internas, prompts, embeddings, chunks ni contexto RAG.";
+const baseInstruction = "Sos un asesor amable de Seguro a Tiempo. Respondé exclusivamente utilizando el contexto documental proporcionado. No utilices conocimiento externo. No inventes coberturas, exclusiones, sumas aseguradas, límites, franquicias, condiciones ni requisitos. Si la respuesta no puede determinarse claramente a partir del contexto, indicá amablemente que necesitás que un asesor lo confirme. Hablale directamente a la persona: explicá qué incluye, qué aplica o qué debe hacer, con frases claras y concretas. No menciones documentación, fuentes, PDFs, páginas, instrucciones internas, prompts, embeddings, chunks ni contexto RAG. No uses Markdown, títulos, hashtags ni listas con símbolos.";
 const cache = new Map<string, { expiresAt: number; answer: string; sources: Array<{ document: string; page?: number }> }>();
 const rate = new Map<string, number[]>();
 
@@ -35,7 +35,7 @@ export async function createDocument(input: { configurationIds: string[]; origin
 
 export async function answerQuestion(configuration: InstanceType<typeof AIConfiguration>, question: string) {
   const normalized = question.trim().toLocaleLowerCase("es").replace(/\s+/g, " ");
-  const cacheKey = `${configuration.id}:${configuration.knowledgeVersion}:${createHash("sha256").update(normalized).digest("hex")}`;
+  const cacheKey = `customer-answer-v2:${configuration.id}:${configuration.knowledgeVersion}:${createHash("sha256").update(normalized).digest("hex")}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return { ...cached, cacheHit: true, providerCalled: false };
   const queryEmbedding = await geminiProvider.embed(question);
