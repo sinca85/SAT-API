@@ -6,6 +6,7 @@ import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
 import { AIConfiguration, AIQuery, AIDocument, AIChunk } from "../models/ai-knowledge.js";
 import { answerQuestion, consumeRateLimit, createDocument } from "../services/ai-knowledge.js";
+import { geminiProvider } from "../integrations/ai/gemini.js";
 import { env } from "../config/env.js";
 
 export const aiRouter = Router();
@@ -128,6 +129,34 @@ aiAdminRouter.post("/configurations/:configurationId/documents-from-blob", async
     const document = await processPdfBuffer({ configurationId: configuration.id, originalName: input.originalName, sizeBytes: input.sizeBytes, buffer, uploadedBy: request.user!.id, blobUrl: input.url });
     response.json({ document: { id: document.id, status: document.status, chunkCount: document.chunkCount, error: document.error } });
   } catch (error) { response.status(200).json({ document: { status: "error", error: error instanceof Error ? error.message : "Document processing failed" } }); }
+});
+
+aiAdminRouter.post("/configurations/:configurationId/browser-documents", async (request, response) => {
+  if (!canManage(request)) { response.status(403).json({ error: "Insufficient permissions" }); return; }
+  const input = z.object({ originalName: z.string().min(1).max(255), sizeBytes: z.number().int().positive(), pageCount: z.number().int().positive() }).parse(request.body);
+  const configuration = await AIConfiguration.findById(request.params.configurationId);
+  if (!configuration) { response.status(404).json({ error: "Configuration not found" }); return; }
+  const document = await AIDocument.create({ configurationIds: [configuration.id], originalName: input.originalName, storedName: input.originalName.replace(/[^a-zA-Z0-9._-]/g, "_"), mimeType: "application/pdf", sizeBytes: input.sizeBytes, pageCount: input.pageCount, status: "processing", uploadedBy: request.user!.id });
+  response.status(201).json({ documentId: document.id });
+});
+
+aiAdminRouter.post("/documents/:documentId/browser-chunks", async (request, response) => {
+  if (!canManage(request)) { response.status(403).json({ error: "Insufficient permissions" }); return; }
+  const input = z.object({ chunks: z.array(z.object({ text: z.string().min(1).max(6000), page: z.number().int().positive(), chunkIndex: z.number().int().nonnegative() })).min(1).max(10) }).parse(request.body);
+  const document = await AIDocument.findById(request.params.documentId);
+  if (!document) { response.status(404).json({ error: "Document not found" }); return; }
+  for (const chunk of input.chunks) await AIChunk.create({ documentId: document.id, configurationIds: document.configurationIds, text: chunk.text, page: chunk.page, chunkIndex: chunk.chunkIndex, embedding: await geminiProvider.embed(chunk.text), documentName: document.originalName });
+  document.chunkCount += input.chunks.length; await document.save();
+  response.json({ chunkCount: document.chunkCount });
+});
+
+aiAdminRouter.post("/documents/:documentId/browser-complete", async (request, response) => {
+  if (!canManage(request)) { response.status(403).json({ error: "Insufficient permissions" }); return; }
+  const document = await AIDocument.findById(request.params.documentId);
+  if (!document) { response.status(404).json({ error: "Document not found" }); return; }
+  document.status = "ready"; await document.save();
+  await AIConfiguration.updateMany({ _id: { $in: document.configurationIds } }, { $inc: { knowledgeVersion: 1 } });
+  response.json({ document: { id: document.id, status: document.status, chunkCount: document.chunkCount } });
 });
 
 aiAdminRouter.delete("/documents/:documentId", async (request, response) => {
