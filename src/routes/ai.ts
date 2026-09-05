@@ -53,6 +53,10 @@ async function processPdfBuffer(input: { configurationId: string; originalName: 
 aiAdminRouter.get("/configurations", async (_request, response) => {
   response.json({ configurations: await AIConfiguration.find().select("-systemInstructions").sort({ company: 1, product: 1, name: 1 }).lean() });
 });
+aiAdminRouter.get("/configurations/:configurationId/diagnostics", async (request, response) => {
+  const queries = await AIQuery.find({ configurationId: request.params.configurationId }).sort({ createdAt: -1 }).limit(5).select("status error createdAt providerCalled durationMs").lean();
+  response.json({ queries });
+});
 aiAdminRouter.post("/configurations", async (request, response) => {
   if (!canManage(request)) { response.status(403).json({ error: "Insufficient permissions" }); return; }
   const input = configurationInput.parse(request.body);
