@@ -38,7 +38,14 @@ if (env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
 
-app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: {
+    directives: {
+      connectSrc: ["'self'", "https://blob.vercel-storage.com", "https://*.vercel-storage.com"],
+    },
+  },
+}));
 app.use(cors({
   origin(origin, callback) {
     callback(null, isAllowedOrigin(origin) ? origin ?? false : false);
