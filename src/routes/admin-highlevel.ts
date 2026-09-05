@@ -28,7 +28,7 @@ interface HighLevelContactsResponse {
 
 export const adminHighLevelRouter = Router();
 
-adminHighLevelRouter.use(requireAuthentication, requireActiveUser, requirePermission("highlevel.contacts.view"));
+adminHighLevelRouter.use(requireAuthentication, requireActiveUser, requirePermission("highlevel.view"), requirePermission("highlevel.contacts.view"));
 
 adminHighLevelRouter.get("/contacts", async (request, response) => {
   if (!env.HIGHLEVEL_LOCATION_ID) {

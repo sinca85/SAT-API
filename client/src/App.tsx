@@ -315,9 +315,12 @@ const permissionOptions = [
   { value: "users.view", label: "Ver usuarios" },
   { value: "users.manage", label: "Habilitar usuarios y asignar roles" },
   { value: "roles.manage", label: "Crear y administrar roles" },
+  { value: "highlevel.view", label: "Acceso a HighLevel" },
   { value: "highlevel.contacts.view", label: "Ver contactos de HighLevel" },
   { value: "faqs.view", label: "Ver FAQs" },
   { value: "faqs.manage", label: "Crear y administrar FAQs" },
+  { value: "ai.view", label: "Acceso a IA" },
+  { value: "ai.manage", label: "Configurar IA" },
 ];
 
 function RolesTable({ roles, loading, onReload }: { roles: AccessRole[]; loading: boolean; onReload: () => Promise<void> }) {
@@ -794,9 +797,9 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   }, []);
 
   useEffect(() => {
-    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "ai" && can("ai.view")) || (view === "highlevel-contacts" && can("highlevel.contacts.view"));
+    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "ai" && can("ai.view")) || (view === "highlevel-contacts" && can("highlevel.view") && can("highlevel.contacts.view"));
     if (allowed) return;
-    const fallback: View | undefined = can("leads.view") ? "leads" : can("faqs.view") ? "faqs" : can("ai.view") ? "ai" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
+    const fallback: View | undefined = can("leads.view") ? "leads" : can("faqs.view") ? "faqs" : can("ai.view") ? "ai" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.view") && can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
     if (fallback) navigate(fallback);
   }, [can, navigate, view]);
 
@@ -820,7 +823,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   );
 
   const highLevelMenu = useMemo<MenuProps["items"]>(
-    () => can("highlevel.contacts.view") ? [{ key: "highlevel-contacts", label: "Contactos", icon: <ContactsOutlined /> }] : [],
+    () => can("highlevel.view") && can("highlevel.contacts.view") ? [{ key: "highlevel-contacts", label: "Contactos", icon: <ContactsOutlined /> }] : [],
     [can],
   );
 
@@ -847,7 +850,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
                 Usuarios <DownOutlined />
               </Button>
             </Dropdown>}
-            {can("highlevel.contacts.view") &&
+            {can("highlevel.view") && can("highlevel.contacts.view") &&
             <Dropdown
               menu={{ items: highLevelMenu, onClick: ({ key }) => navigate(key as View) }}
               trigger={["click"]}
@@ -903,7 +906,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
           ) : view === "ai" ? (
             can("ai.view") ? <AIKnowledgePanel canManage={can("ai.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : (
-            can("highlevel.contacts.view") ? <HighLevelContacts /> : <Result status="403" title="Sin acceso" />
+            can("highlevel.view") && can("highlevel.contacts.view") ? <HighLevelContacts /> : <Result status="403" title="Sin acceso" />
           )}
         </section>
       </Layout.Content>

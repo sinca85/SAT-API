@@ -7,6 +7,7 @@ export const accessPermissions = [
   "users.view",
   "users.manage",
   "roles.manage",
+  "highlevel.view",
   "highlevel.contacts.view",
   "faqs.view",
   "faqs.manage",
