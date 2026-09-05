@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
 import multer from "multer";
-import { PDFParse } from "pdf-parse";
 import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
 import { AIConfiguration, AIQuery, AIDocument } from "../models/ai-knowledge.js";
 import { answerQuestion, consumeRateLimit, createDocument } from "../services/ai-knowledge.js";
@@ -68,6 +67,7 @@ aiAdminRouter.post("/configurations/:configurationId/documents", upload.single("
   const configuration = await AIConfiguration.findById(request.params.configurationId);
   if (!configuration) { response.status(404).json({ error: "Configuration not found" }); return; }
   if (!request.file) { response.status(400).json({ error: "A PDF file is required" }); return; }
+  const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: request.file.buffer });
   const parsed = await parser.getText();
   await parser.destroy();
