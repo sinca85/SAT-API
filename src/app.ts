@@ -75,7 +75,7 @@ app.use(passport.session());
 const publicDirectory = path.join(process.cwd(), "public");
 app.use(express.static(publicDirectory));
 
-const panelRoutes = ["/usuarios", "/roles", "/leads", "/faqs", "/highlevel/contactos"];
+const panelRoutes = ["/usuarios", "/roles", "/leads", "/faqs", "/ia", "/highlevel/contactos"];
 
 app.get("/permisos", (_request, response) => response.redirect(302, "/roles"));
 

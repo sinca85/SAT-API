@@ -36,7 +36,7 @@ export const aiAdminRouter = Router();
 aiAdminRouter.use(requireAuthentication, requireActiveUser, requirePermission("ai.view"));
 const configurationInput = z.object({ name: z.string().trim().min(2).max(120), slug: z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(120), company: z.string().trim().min(2).max(80), product: z.string().trim().min(2).max(80), title: z.string().trim().max(180).default(""), placeholder: z.string().trim().max(240).default("¿Qué querés saber?"), welcomeMessage: z.string().trim().max(500).default(""), fallbackMessage: z.string().trim().min(5).max(500), systemInstructions: z.string().trim().max(4000).default(""), active: z.boolean().default(false) });
 const canManage = (request: import("express").Request) => request.user!.permissions.includes("*") || request.user!.permissions.includes("ai.manage");
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: env.AI_MAX_DOCUMENT_BYTES, files: 1 }, fileFilter: (_request, file, callback) => callback(null, file.mimetype === "application/pdf") });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: env.AI_MAX_DOCUMENT_BYTES, files: 20 }, fileFilter: (_request, file, callback) => callback(null, file.mimetype === "application/pdf") });
 
 aiAdminRouter.get("/configurations", async (_request, response) => {
   response.json({ configurations: await AIConfiguration.find().select("-systemInstructions").sort({ company: 1, product: 1, name: 1 }).lean() });
@@ -62,17 +62,22 @@ aiAdminRouter.delete("/configurations/:configurationId", async (request, respons
   response.status(204).end();
 });
 
-aiAdminRouter.post("/configurations/:configurationId/documents", upload.single("file"), async (request, response) => {
+aiAdminRouter.post("/configurations/:configurationId/documents", upload.array("files", 20), async (request, response) => {
   if (!canManage(request)) { response.status(403).json({ error: "Insufficient permissions" }); return; }
   const configuration = await AIConfiguration.findById(request.params.configurationId);
   if (!configuration) { response.status(404).json({ error: "Configuration not found" }); return; }
-  if (!request.file) { response.status(400).json({ error: "A PDF file is required" }); return; }
+  const files = (request.files as Express.Multer.File[] | undefined) ?? [];
+  if (!files.length) { response.status(400).json({ error: "At least one PDF file is required" }); return; }
   const { PDFParse } = await import("pdf-parse");
-  const parser = new PDFParse({ data: request.file.buffer });
-  const parsed = await parser.getText();
-  await parser.destroy();
-  const document = await createDocument({ configurationIds: [configuration.id], originalName: request.file.originalname, sizeBytes: request.file.size, text: parsed.text, uploadedBy: request.user!.id });
-  response.status(document.status === "ready" ? 201 : 500).json({ document: { id: document.id, status: document.status, chunkCount: document.chunkCount, error: document.error } });
+  const documents = [];
+  for (const file of files) {
+    const parser = new PDFParse({ data: file.buffer });
+    const parsed = await parser.getText();
+    await parser.destroy();
+    const document = await createDocument({ configurationIds: [configuration.id], originalName: file.originalname, sizeBytes: file.size, text: parsed.text, uploadedBy: request.user!.id });
+    documents.push({ id: document.id, status: document.status, chunkCount: document.chunkCount, error: document.error });
+  }
+  response.status(documents.every((document) => document.status === "ready") ? 201 : 500).json({ documents });
 });
 
 aiAdminRouter.get("/documents/:configurationId", async (request, response) => {
