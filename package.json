@@ -16,6 +16,8 @@
   "dependencies": {
     "@ant-design/icons": "^6.3.4",
     "@google/genai": "^2.21.0",
+    "@types/pdf-parse": "^1.1.5",
+    "@vercel/blob": "^2.8.0",
     "antd": "^6.6.2",
     "connect-mongo": "^6.0.0",
     "cors": "^2.8.5",
@@ -27,7 +29,7 @@
     "multer": "^2.3.0",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
-    "pdf-parse": "^2.4.5",
+    "pdf-parse": "^1.1.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zod": "^4.1.5"

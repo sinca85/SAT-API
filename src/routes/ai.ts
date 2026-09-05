@@ -69,18 +69,16 @@ aiAdminRouter.post("/configurations/:configurationId/documents", upload.array("f
   const files = (request.files as Express.Multer.File[] | undefined) ?? [];
   if (!files.length) { response.status(400).json({ error: "At least one PDF file is required" }); return; }
   const documents = [];
-  let PDFParse: typeof import("pdf-parse").PDFParse;
+  let pdfParse: typeof import("pdf-parse");
   try {
-    ({ PDFParse } = await import("pdf-parse"));
+    pdfParse = (await import("pdf-parse")).default;
   } catch (error) {
     response.status(200).json({ documents: files.map((file) => ({ name: file.originalname, status: "error", chunkCount: 0, error: error instanceof Error ? error.message : "No se pudo cargar el lector PDF" })) });
     return;
   }
   for (const file of files) {
     try {
-      const parser = new PDFParse({ data: file.buffer });
-      const parsed = await parser.getText();
-      await parser.destroy();
+      const parsed = await pdfParse(file.buffer);
       const document = await createDocument({ configurationIds: [configuration.id], originalName: file.originalname, sizeBytes: file.size, text: parsed.text, uploadedBy: request.user!.id });
       documents.push({ id: document.id, name: file.originalname, status: document.status, chunkCount: document.chunkCount, error: document.error });
     } catch (error) {
