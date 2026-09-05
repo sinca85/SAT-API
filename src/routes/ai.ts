@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { createRequire } from "node:module";
 import { z } from "zod";
 import multer from "multer";
 import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
@@ -71,7 +72,9 @@ aiAdminRouter.post("/configurations/:configurationId/documents", upload.array("f
   const documents = [];
   let pdfParse: typeof import("pdf-parse");
   try {
-    pdfParse = (await import("pdf-parse")).default;
+    // pdf-parse 1.x exposes a CommonJS entry that runs a bundled test when
+    // loaded as a native ESM module. Require it explicitly in Node/Vercel.
+    pdfParse = createRequire(import.meta.url)("pdf-parse") as typeof pdfParse;
   } catch (error) {
     response.status(200).json({ documents: files.map((file) => ({ name: file.originalname, status: "error", chunkCount: 0, error: error instanceof Error ? error.message : "No se pudo cargar el lector PDF" })) });
     return;
