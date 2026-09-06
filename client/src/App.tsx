@@ -12,6 +12,7 @@ import {
   PushpinOutlined,
   PlayCircleOutlined,
   SafetyCertificateOutlined,
+  SettingOutlined,
   TeamOutlined,
   UserOutlined,
 } from "@ant-design/icons";
@@ -42,7 +43,7 @@ import {
   type MenuProps,
   type TableColumnsType,
 } from "antd";
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
@@ -50,7 +51,7 @@ GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 type UserRole = "admin" | "user";
 type UserStatus = "pending" | "active" | "disabled";
-type View = "users" | "roles" | "highlevel-contacts" | "leads" | "faqs" | "ai";
+type View = "users" | "roles" | "highlevel-contacts" | "leads" | "faqs" | "ai" | "config";
 type LeadStatus = "new" | "pending_contact" | "contacted" | "follow_up" | "interested" | "quote_sent" | "won" | "not_interested" | "not_qualified" | "unresponsive";
 
 interface SessionUser {
@@ -106,6 +107,17 @@ interface FaqEntry {
   updatedAt: string;
 }
 
+type ConfigType = "email" | "whatsapp" | "direccion" | "red_social";
+interface ConfigEntry {
+  _id: string;
+  slug: string;
+  label: string;
+  value: string;
+  type: ConfigType;
+  category: "contactos" | "ubicacion" | "redes_sociales";
+  active: boolean;
+}
+
 type FaqImportEntry = Omit<FaqEntry, "_id" | "updatedAt">;
 
 interface Lead {
@@ -153,6 +165,7 @@ const viewPaths: Record<View, string> = {
   faqs: "/faqs",
   "highlevel-contacts": "/highlevel/contactos",
   ai: "/ia",
+  config: "/config",
 };
 
 function viewFromPath(pathname: string): View {
@@ -317,6 +330,8 @@ const permissionOptions = [
   { value: "users.view", label: "Ver usuarios" },
   { value: "users.manage", label: "Habilitar usuarios y asignar roles" },
   { value: "roles.manage", label: "Crear y administrar roles" },
+  { value: "config.view", label: "Acceso a Configuración" },
+  { value: "config.manage", label: "Editar Configuración" },
   { value: "highlevel.view", label: "Acceso a HighLevel" },
   { value: "highlevel.contacts.view", label: "Ver contactos de HighLevel" },
   { value: "faqs.view", label: "Ver FAQs" },
@@ -728,6 +743,30 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
   </>;
 }
 
+function ConfigPanel({ canManage }: { canManage: boolean }) {
+  const { message } = AntApp.useApp();
+  const [entries, setEntries] = useState<ConfigEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<Partial<ConfigEntry> | null>(null);
+  const load = useCallback(async () => { setLoading(true); try { const data = await requestJson<{ entries: ConfigEntry[] }>("/admin/config"); setEntries(data.entries); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo cargar la configuración"); } finally { setLoading(false); } }, [message]);
+  useEffect(() => { void load(); }, [load]);
+  const openCreate = (type: ConfigType) => setEditing({ type, slug: "", label: "", value: "", active: true });
+  const save = async () => { if (!editing?.type || !editing.slug || !editing.label || !editing.value) { message.error("Completá tipo, nombre, slug y valor"); return; } try { if (editing._id) await requestJson(`/admin/config/${editing._id}`, { method: "PATCH", body: JSON.stringify(editing) }); else await requestJson("/admin/config", { method: "POST", body: JSON.stringify(editing) }); setEditing(null); await load(); message.success("Configuración guardada"); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo guardar"); } };
+  const remove = (entry: ConfigEntry) => Modal.confirm({ title: "Eliminar configuración", content: `Se eliminará ${entry.label}.`, okText: "Eliminar", cancelText: "Cancelar", okButtonProps: { danger: true }, onOk: async () => { await requestJson(`/admin/config/${entry._id}`, { method: "DELETE" }); await load(); message.success("Configuración eliminada"); } });
+  const columns: TableColumnsType<ConfigEntry> = [{ title: "Nombre", dataIndex: "label" }, { title: "Slug", dataIndex: "slug", responsive: ["sm"] }, { title: "Valor", dataIndex: "value", ellipsis: true }, { title: "Estado", dataIndex: "active", responsive: ["md"], render: active => <Tag color={active ? "green" : "default"}>{active ? "Activo" : "Inactivo"}</Tag> }, { title: "Acciones", render: (_, entry) => canManage ? <Space><Button size="small" icon={<EditOutlined />} onClick={() => setEditing({ ...entry })}>Editar</Button><Button danger size="small" icon={<DeleteOutlined />} onClick={() => remove(entry)}>Eliminar</Button></Space> : "—" }];
+  const section = (title: string, category: ConfigEntry["category"], actions: ReactNode) => <section className="config-section"><Flex justify="space-between" align="center" wrap="wrap" gap={12}><Typography.Title level={4}>{title}</Typography.Title>{canManage && actions}</Flex><Table size="small" loading={loading} rowKey="_id" dataSource={entries.filter(entry => entry.category === category)} columns={columns} pagination={false} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Sin elementos cargados" /> }} /></section>;
+  const valuePlaceholder = editing?.type === "email" ? "ventas@seguroatiempo.com" : editing?.type === "whatsapp" ? "54911..." : editing?.type === "direccion" ? "Dirección completa" : "https://instagram.com/...";
+  return <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Typography.Text type="secondary">Datos reutilizables por slug y categoría. Las landings pueden consultar un dato puntual o el listado completo de una categoría.</Typography.Text>
+    {section("Contactos", "contactos", <Space><Button type="primary" onClick={() => openCreate("email")}>Agregar email</Button><Button onClick={() => openCreate("whatsapp")}>Agregar WhatsApp</Button></Space>)}
+    {section("Ubicación", "ubicacion", <Button type="primary" onClick={() => openCreate("direccion")}>Agregar dirección</Button>)}
+    {section("Redes sociales", "redes_sociales", <Button type="primary" onClick={() => openCreate("red_social")}>Agregar red social</Button>)}
+    <Modal open={Boolean(editing)} title={editing?._id ? "Editar configuración" : "Nueva configuración"} okText="Guardar" cancelText="Cancelar" onCancel={() => setEditing(null)} onOk={() => void save()}>
+      {editing && <Space direction="vertical" style={{ width: "100%" }}><Select value={editing.type} onChange={type => setEditing({ ...editing, type })} options={[{ value: "email", label: "Email" }, { value: "whatsapp", label: "WhatsApp" }, { value: "direccion", label: "Dirección" }, { value: "red_social", label: "Red social" }]} /><Input value={editing.label} onChange={event => setEditing({ ...editing, label: event.target.value })} placeholder="Nombre visible (ej. Ventas)" /><Input value={editing.slug} onChange={event => setEditing({ ...editing, slug: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-") })} placeholder="Slug único (ej. whatsapp-ventas)" /><Input.TextArea value={editing.value} onChange={event => setEditing({ ...editing, value: event.target.value })} placeholder={valuePlaceholder} autoSize={{ minRows: 2, maxRows: 4 }} /><Switch checked={editing.active !== false} onChange={active => setEditing({ ...editing, active })} checkedChildren="Activo" unCheckedChildren="Inactivo" /></Space>}
+    </Modal>
+  </Space>;
+}
+
 function AIKnowledgePanel({ canManage }: { canManage: boolean }) {
   const { message } = AntApp.useApp();
   const screens = Grid.useBreakpoint();
@@ -811,9 +850,9 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   }, []);
 
   useEffect(() => {
-    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "ai" && can("ai.view")) || (view === "highlevel-contacts" && can("highlevel.view") && can("highlevel.contacts.view"));
+    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "ai" && can("ai.view")) || (view === "config" && can("config.view")) || (view === "highlevel-contacts" && can("highlevel.view") && can("highlevel.contacts.view"));
     if (allowed) return;
-    const fallback: View | undefined = can("leads.view") ? "leads" : can("faqs.view") ? "faqs" : can("ai.view") ? "ai" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.view") && can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
+    const fallback: View | undefined = can("leads.view") ? "leads" : can("faqs.view") ? "faqs" : can("ai.view") ? "ai" : can("config.view") ? "config" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.view") && can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
     if (fallback) navigate(fallback);
   }, [can, navigate, view]);
 
@@ -855,6 +894,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
             {can("leads.view") && <Button type="text" className="header-menu-button" icon={<ContactsOutlined />} onClick={() => navigate("leads")}>Leads</Button>}
             {can("faqs.view") && <Button type="text" className="header-menu-button" icon={<SafetyCertificateOutlined />} onClick={() => navigate("faqs")}>FAQs</Button>}
             {can("ai.view") && <Button type="text" className="header-menu-button" icon={<SafetyCertificateOutlined />} onClick={() => navigate("ai")}>IA</Button>}
+            {can("config.view") && <Button type="text" className="header-menu-button" icon={<SettingOutlined />} onClick={() => navigate("config")}>Config</Button>}
             {(can("users.view") || can("roles.manage")) &&
             <Dropdown
               menu={{ items: userMenu, onClick: ({ key }) => navigate(key as View) }}
@@ -887,7 +927,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <Flex justify="space-between" align="center" gap={16} wrap="wrap" className="page-heading">
           <div>
             <Typography.Title level={2}>
-              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : view === "ai" ? "Inteligencia artificial" : "Contactos de HighLevel"}
+              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : view === "ai" ? "Inteligencia artificial" : view === "config" ? "Configuración" : "Contactos de HighLevel"}
             </Typography.Title>
             <Typography.Text type="secondary">
               {view === "users"
@@ -898,7 +938,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
                     ? "Solicitudes recibidas desde los cotizadores y su estado de sincronización."
                     : view === "faqs"
                       ? "Base de preguntas y respuestas organizada por aseguradora y tipo de seguro."
-                    : view === "ai" ? "Asistentes y bases de conocimiento por aseguradora y tipo de seguro." : "Contactos sincronizados desde la subcuenta de Seguro a Tiempo."}
+                    : view === "ai" ? "Asistentes y bases de conocimiento por aseguradora y tipo de seguro." : view === "config" ? "Datos reutilizables por las landings y los asistentes." : "Contactos sincronizados desde la subcuenta de Seguro a Tiempo."}
             </Typography.Text>
           </div>
           {view === "users" && (
@@ -919,6 +959,8 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
             can("faqs.view") ? <FaqsTable canManage={can("faqs.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : view === "ai" ? (
             can("ai.view") ? <AIKnowledgePanel canManage={can("ai.manage")} /> : <Result status="403" title="Sin acceso" />
+          ) : view === "config" ? (
+            can("config.view") ? <ConfigPanel canManage={can("config.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : (
             can("highlevel.view") && can("highlevel.contacts.view") ? <HighLevelContacts /> : <Result status="403" title="Sin acceso" />
           )}
