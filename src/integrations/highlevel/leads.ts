@@ -31,6 +31,11 @@ interface DuplicateContactBody {
   meta?: { contactId?: string };
 }
 
+interface DuplicateOpportunityBody {
+  code?: string;
+  meta?: { existingId?: string };
+}
+
 const cachedStageIds = new Map<string, string>();
 
 async function getPipelineStageId(pipelineId: string, stageName: string) {
@@ -162,20 +167,30 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
 
   const pipelineStageId = await getPipelineStageId(campaign.pipelineId, campaign.pipelineStageName);
   if (pipelineStageId && !lead.highLevel!.opportunityId) {
-    const opportunityData = await highLevelClient.request<CreateOpportunityResponse>("/opportunities/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Version: "2021-07-28" },
-      body: JSON.stringify({
-        pipelineId: campaign.pipelineId,
-        pipelineStageId,
-        locationId: env.HIGHLEVEL_LOCATION_ID,
-        name: campaign.opportunityName(lead),
-        status: "open",
-        contactId,
-        monetaryValue: lead.quote!.monthlyPrice * 12,
-      }),
-    });
-    lead.highLevel!.opportunityId = opportunityData.opportunity.id;
+    try {
+      const opportunityData = await highLevelClient.request<CreateOpportunityResponse>("/opportunities/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Version: "2021-07-28" },
+        body: JSON.stringify({
+          pipelineId: campaign.pipelineId,
+          pipelineStageId,
+          locationId: env.HIGHLEVEL_LOCATION_ID,
+          name: campaign.opportunityName(lead),
+          status: "open",
+          contactId,
+          monetaryValue: lead.quote!.monthlyPrice * 12,
+        }),
+      });
+      lead.highLevel!.opportunityId = opportunityData.opportunity.id;
+    } catch (error) {
+      const existingOpportunityId = error instanceof HighLevelRequestError && error.status === 400 && (error.body as DuplicateOpportunityBody)?.code === "OPPORTUNITY_NO_DUPLICATE"
+        ? (error.body as DuplicateOpportunityBody).meta?.existingId
+        : undefined;
+      if (!existingOpportunityId) throw error;
+      // HighLevel allows one open opportunity per contact/pipeline. Reuse it;
+      // this lead still creates its own note with the latest quote below.
+      lead.highLevel!.opportunityId = existingOpportunityId;
+    }
     lead.highLevel!.syncStatus = "synced";
   }
 
