@@ -68,13 +68,7 @@ async function syncSummaryNote(lead: LeadDocument, contactId: string) {
   // the contact's history, not a permanent pin, so it must remain unpinned.
   const payload = { ...note, pinned: false };
   const noteId = lead.highLevel?.summaryNoteId;
-  if (noteId) {
-    await highLevelClient.request(`/contacts/${contactId}/notes/${noteId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", Version: "v3" },
-      body: JSON.stringify(payload),
-    });
-  } else {
+  const createNote = async () => {
     const data = await highLevelClient.request<NoteResponse>(`/contacts/${contactId}/notes`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Version: "v3" },
@@ -82,6 +76,25 @@ async function syncSummaryNote(lead: LeadDocument, contactId: string) {
     });
     if (!data.note?.id) throw new Error("HighLevel did not return a summary note ID");
     lead.highLevel!.summaryNoteId = data.note.id;
+  };
+  if (noteId) {
+    try {
+      await highLevelClient.request(`/contacts/${contactId}/notes/${noteId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Version: "v3" },
+        body: JSON.stringify(payload),
+      });
+    } catch (error) {
+      const message = error instanceof HighLevelRequestError ? String((error.body as { message?: string })?.message || "") : "";
+      if (error instanceof HighLevelRequestError && error.status === 400 && /note id is invalid/i.test(message)) {
+        // A note might have been deleted directly in HighLevel. Its stored ID
+        // is no longer usable, so recreate the current quote note once.
+        lead.highLevel!.summaryNoteId = undefined;
+        await createNote();
+      } else throw error;
+    }
+  } else {
+    await createNote();
   }
   lead.highLevel!.summaryNoteFingerprint = fingerprint;
 }
