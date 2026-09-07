@@ -36,6 +36,12 @@ interface DuplicateOpportunityBody {
   meta?: { existingId?: string };
 }
 
+function duplicateContactIdFromError(error: unknown) {
+  return error instanceof HighLevelRequestError && error.status === 400
+    ? (error.body as DuplicateContactBody)?.meta?.contactId
+    : undefined;
+}
+
 const cachedStageIds = new Map<string, string>();
 
 async function getPipelineStageId(pipelineId: string, stageName: string) {
@@ -127,10 +133,24 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
       body: JSON.stringify({ ...contactPayload, locationId: undefined }),
     },
   );
+  const updateContactWithDuplicateRecovery = async (contactId: string, visited = new Set<string>()): Promise<{ contactData: UpsertContactResponse; contactId: string }> => {
+    visited.add(contactId);
+    try {
+      return { contactData: await updateContact(contactId), contactId };
+    } catch (error) {
+      const duplicateContactId = duplicateContactIdFromError(error);
+      if (!duplicateContactId || visited.has(duplicateContactId)) throw error;
+      // The submitted email and phone can point to different existing contacts.
+      // Follow HighLevel's returned match and update that contact instead.
+      return updateContactWithDuplicateRecovery(duplicateContactId, visited);
+    }
+  };
   let recoveredContactId = existingContactId;
   let contactData: UpsertContactResponse;
   if (existingContactId) {
-    contactData = await updateContact(existingContactId);
+    const recovered = await updateContactWithDuplicateRecovery(existingContactId);
+    contactData = recovered.contactData;
+    recoveredContactId = recovered.contactId;
   } else {
     try {
       contactData = await highLevelClient.request<UpsertContactResponse>("/contacts/upsert", {
@@ -139,12 +159,11 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
         body: JSON.stringify(contactPayload),
       });
     } catch (error) {
-      const duplicateContactId = error instanceof HighLevelRequestError && error.status === 400
-        ? (error.body as DuplicateContactBody)?.meta?.contactId
-        : undefined;
+      const duplicateContactId = duplicateContactIdFromError(error);
       if (!duplicateContactId) throw error;
-      recoveredContactId = duplicateContactId;
-      contactData = await updateContact(duplicateContactId);
+      const recovered = await updateContactWithDuplicateRecovery(duplicateContactId);
+      recoveredContactId = recovered.contactId;
+      contactData = recovered.contactData;
     }
   }
   /*
