@@ -59,10 +59,10 @@ async function getPipelineStageId(pipelineId: string, stageName: string) {
   return stage.id;
 }
 
-async function syncSummaryNote(lead: LeadDocument, contactId: string) {
+async function syncSummaryNote(lead: LeadDocument, contactId: string, force = false) {
   const note = getHighLevelCampaign(lead.source).buildSummaryNote(lead);
   const fingerprint = createHash("sha256").update(JSON.stringify(note)).digest("hex");
-  if (lead.highLevel?.summaryNoteFingerprint === fingerprint) return;
+  if (!force && lead.highLevel?.summaryNoteFingerprint === fingerprint) return;
 
   // HighLevel only permits two pinned notes per contact. A quote is part of
   // the contact's history, not a permanent pin, so it must remain unpinned.
@@ -114,7 +114,7 @@ function splitName(fullName: string) {
   return { firstName, lastName: lastNameParts.join(" ") };
 }
 
-export async function syncLeadToHighLevel(lead: LeadDocument) {
+export async function syncLeadToHighLevel(lead: LeadDocument, options: { forceNoteUpdate?: boolean } = {}) {
   if (!env.HIGHLEVEL_LOCATION_ID) throw new Error("HighLevel Location ID is not configured");
   const campaign = getHighLevelCampaign(lead.source);
 
@@ -241,7 +241,7 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
     lead.highLevel!.syncStatus = "synced";
   }
 
-  await syncSummaryNote(lead, contactId);
+  await syncSummaryNote(lead, contactId, options.forceNoteUpdate);
   lead.highLevel!.syncStatus = "synced";
 
   await lead.save();

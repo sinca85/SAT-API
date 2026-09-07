@@ -134,11 +134,13 @@ leadsRouter.patch("/home/:leadId/contract", async (request, response) => {
   lead.phone = input.phone;
   lead.status = "interested";
   try {
-    await syncLeadToHighLevel(lead);
+    await syncLeadToHighLevel(lead, { forceNoteUpdate: true });
   } catch (error) {
     lead.highLevel!.syncStatus = "failed";
     lead.highLevel!.lastError = error instanceof Error ? error.message : "Unknown HighLevel error";
     await lead.save();
+    response.status(502).json({ error: "No se pudo actualizar la nota de la cotización en HighLevel", syncError: lead.highLevel!.lastError });
+    return;
   }
   response.json({ leadId: lead.id, syncStatus: lead.highLevel!.syncStatus });
 });
