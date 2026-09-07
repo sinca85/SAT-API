@@ -5,6 +5,7 @@ import { syncLeadToHighLevel } from "../integrations/highlevel/leads.js";
 import { ALLIANZ_HOME_SOURCE } from "../integrations/highlevel/campaigns/index.js";
 import { Lead } from "../models/lead.js";
 import { getHomeQuote, getHomeQuoteOptions } from "../services/home-quotes.js";
+import { upsertLandingContact } from "../services/highlevel-contacts.js";
 
 export const HOME_LEAD_SOURCE = ALLIANZ_HOME_SOURCE;
 
@@ -101,8 +102,11 @@ leadsRouter.post("/home", async (request, response) => {
     highLevel: { syncStatus: "pending" },
   });
 
+  await upsertLandingContact({ fullName: lead.fullName, firstName, lastName: lastNameParts.join(" "), email: lead.email, phone: lead.phone });
+
   try {
     await syncLeadToHighLevel(lead);
+    await upsertLandingContact({ fullName: lead.fullName, firstName, lastName: lastNameParts.join(" "), email: lead.email, phone: lead.phone, highLevelId: lead.highLevel?.contactId ?? undefined });
   } catch (error) {
     lead.highLevel!.syncStatus = "failed";
     lead.highLevel!.lastError = error instanceof Error ? error.message : "Unknown HighLevel error";
@@ -133,8 +137,10 @@ leadsRouter.patch("/home/:leadId/contract", async (request, response) => {
   lead.email = input.email;
   lead.phone = input.phone;
   lead.status = "interested";
+  await upsertLandingContact({ fullName: lead.fullName, firstName: input.firstName, lastName: input.lastName, email: lead.email, phone: lead.phone, highLevelId: lead.highLevel?.contactId ?? undefined });
   try {
     await syncLeadToHighLevel(lead, { forceNoteUpdate: true });
+    await upsertLandingContact({ fullName: lead.fullName, firstName: input.firstName, lastName: input.lastName, email: lead.email, phone: lead.phone, highLevelId: lead.highLevel?.contactId ?? undefined });
   } catch (error) {
     lead.highLevel!.syncStatus = "failed";
     lead.highLevel!.lastError = error instanceof Error ? error.message : "Unknown HighLevel error";

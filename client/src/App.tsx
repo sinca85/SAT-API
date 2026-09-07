@@ -15,6 +15,7 @@ import {
   SettingOutlined,
   TeamOutlined,
   UserOutlined,
+  SyncOutlined,
 } from "@ant-design/icons";
 import {
   App as AntApp,
@@ -523,6 +524,7 @@ function HighLevelContacts() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [syncing, setSyncing] = useState(false);
   const pageSize = 25;
 
   const loadContacts = useCallback(async (nextPage: number) => {
@@ -544,6 +546,20 @@ function HighLevelContacts() {
   useEffect(() => {
     void loadContacts(page);
   }, [loadContacts, page]);
+
+  const synchronize = async () => {
+    setSyncing(true);
+    try {
+      const result = await requestJson<{ processed: number; created: number; updated: number; total: number }>("/admin/highlevel/contacts/sync", { method: "POST" });
+      message.success(`Sincronización terminada: ${result.processed} contactos procesados (${result.created} nuevos, ${result.updated} actualizados).`);
+      await loadContacts(1);
+      setPage(1);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "No se pudieron sincronizar los contactos");
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const columns: TableColumnsType<HighLevelContact> = [
     {
@@ -576,7 +592,8 @@ function HighLevelContacts() {
     },
   ];
 
-  return (
+  return <>
+    <Flex justify="flex-end" style={{ marginBottom: 16 }}><Button type="primary" icon={<SyncOutlined />} loading={syncing} onClick={() => void synchronize()}>Sincronizar</Button></Flex>
     <Table
       rowKey="id"
       columns={columns}
@@ -591,9 +608,9 @@ function HighLevelContacts() {
         onChange: setPage,
         showTotal: (count) => `${count} contactos`,
       }}
-      locale={{ emptyText: <Empty description="No se encontraron contactos en HighLevel" /> }}
+      locale={{ emptyText: <Empty description="Todavía no hay contactos sincronizados" /> }}
     />
-  );
+  </>;
 }
 
 type LeadSortField = "fullName" | "monthlyPrice" | "source" | "status" | "syncStatus" | "createdAt";
@@ -897,7 +914,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   );
 
   const highLevelMenu = useMemo<MenuProps["items"]>(
-    () => can("highlevel.view") && can("highlevel.contacts.view") ? [{ key: "highlevel-contacts", label: "Contactos", icon: <ContactsOutlined /> }] : [],
+    () => can("highlevel.view") && can("highlevel.contacts.view") ? [{ key: "highlevel-contacts", label: "Todos", icon: <ContactsOutlined /> }] : [],
     [can],
   );
 
@@ -931,7 +948,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
               trigger={["click"]}
             >
               <Button type="text" className="header-menu-button" icon={<ContactsOutlined />}>
-                HighLevel <DownOutlined />
+                Contactos <DownOutlined />
               </Button>
             </Dropdown>}
           </Space>
@@ -948,7 +965,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <Flex justify="space-between" align="center" gap={16} wrap="wrap" className="page-heading">
           <div>
             <Typography.Title level={2}>
-              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : view === "ai" ? "Inteligencia artificial" : view === "config" ? "Configuración" : "Contactos de HighLevel"}
+              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : view === "ai" ? "Inteligencia artificial" : view === "config" ? "Configuración" : "Contactos"}
             </Typography.Title>
             <Typography.Text type="secondary">
               {view === "users"
@@ -959,7 +976,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
                     ? "Solicitudes recibidas desde los cotizadores y su estado de sincronización."
                     : view === "faqs"
                       ? "Base de preguntas y respuestas organizada por aseguradora y tipo de seguro."
-                    : view === "ai" ? "Asistentes y bases de conocimiento por aseguradora y tipo de seguro." : view === "config" ? "Datos reutilizables por las landings y los asistentes." : "Contactos sincronizados desde la subcuenta de Seguro a Tiempo."}
+                    : view === "ai" ? "Asistentes y bases de conocimiento por aseguradora y tipo de seguro." : view === "config" ? "Datos reutilizables por las landings y los asistentes." : "Copia local de los contactos de la subcuenta de Seguro a Tiempo. Usá Sincronizar para actualizarla."}
             </Typography.Text>
           </div>
           {view === "users" && (
