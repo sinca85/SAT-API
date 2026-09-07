@@ -980,7 +980,6 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
             {can("faqs.view") && <Button type="text" className="header-menu-button" icon={<SafetyCertificateOutlined />} onClick={() => navigate("faqs")}>FAQs</Button>}
             {can("ai.view") && <Button type="text" className="header-menu-button" icon={<SafetyCertificateOutlined />} onClick={() => navigate("ai")}>IA</Button>}
             {can("analytics.view") && <Button type="text" className="header-menu-button" icon={<BarChartOutlined />} onClick={() => navigate("analytics")}>Analytics</Button>}
-            {can("config.view") && <Button type="text" className="header-menu-button" icon={<SettingOutlined />} onClick={() => navigate("config")}>Config</Button>}
             {(can("users.view") || can("roles.manage")) &&
             <Dropdown
               menu={{ items: userMenu, onClick: ({ key }) => navigate(key as View) }}
@@ -999,6 +998,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
                 Contactos <DownOutlined />
               </Button>
             </Dropdown>}
+            {can("config.view") && <Button type="text" className="header-menu-button" icon={<SettingOutlined />} onClick={() => navigate("config")}>Config</Button>}
           </Space>
         </nav>
         <Space className="account-actions">
