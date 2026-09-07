@@ -64,7 +64,9 @@ async function syncSummaryNote(lead: LeadDocument, contactId: string) {
   const fingerprint = createHash("sha256").update(JSON.stringify(note)).digest("hex");
   if (lead.highLevel?.summaryNoteFingerprint === fingerprint) return;
 
-  const payload = { ...note, pinned: true };
+  // HighLevel only permits two pinned notes per contact. A quote is part of
+  // the contact's history, not a permanent pin, so it must remain unpinned.
+  const payload = { ...note, pinned: false };
   const noteId = lead.highLevel?.summaryNoteId;
   if (noteId) {
     await highLevelClient.request(`/contacts/${contactId}/notes/${noteId}`, {

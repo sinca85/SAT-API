@@ -49,11 +49,39 @@ adminLeadsRouter.get("/", async (request, response) => {
   const filter = { ...(source ? { source } : {}), ...(status ? { status } : {}) };
   const sortFields = { fullName: "fullName", monthlyPrice: "quote.monthlyPrice", source: "source", status: "status", syncStatus: "highLevel.syncStatus", createdAt: "createdAt" } as const;
   const sort = { [sortFields[sortBy]]: sortOrder === "asc" ? 1 : -1 } as Record<string, 1 | -1>;
-  const [leads, total] = await Promise.all([
-    Lead.find(filter).sort(sort).skip((page - 1) * limit).limit(limit).lean(),
-    Lead.countDocuments(filter),
-  ]);
-  response.json({ leads, total, page, limit });
+  const leads = await Lead.find(filter).sort(sort).lean();
+
+  // A person can quote more than once. We intentionally keep every quote as
+  // a lead, but present them under a single contact in the administrative UI.
+  // Email takes precedence; when it is absent, an Argentine phone is the
+  // fallback identity. Empty values must never join unrelated anonymous leads.
+  const parent = leads.map((_, index) => index);
+  const find = (index: number): number => {
+    const current = parent[index]!;
+    if (current !== index) parent[index] = find(current);
+    return parent[index]!;
+  };
+  const join = (left: number, right: number) => {
+    const leftRoot = find(left); const rightRoot = find(right);
+    if (leftRoot !== rightRoot) parent[rightRoot] = leftRoot;
+  };
+  const byEmail = new Map<string, number>();
+  const byPhone = new Map<string, number>();
+  leads.forEach((lead, index) => {
+    const email = (lead.personal?.email || lead.email || "").trim().toLowerCase();
+    const phone = (lead.personal?.phone || lead.phone || "").replace(/\D/g, "");
+    if (email) { const previous = byEmail.get(email); if (previous !== undefined) join(index, previous); else byEmail.set(email, index); }
+    if (phone) { const previous = byPhone.get(phone); if (previous !== undefined) join(index, previous); else byPhone.set(phone, index); }
+  });
+  const groups = new Map<number, typeof leads>();
+  leads.forEach((lead, index) => { const root = find(index); groups.set(root, [...(groups.get(root) || []), lead]); });
+  const contacts = [...groups.values()].map((group) => ({
+    contactKey: String(group[0]!._id),
+    latestLead: group[0]!,
+    leads: group,
+  }));
+  const total = contacts.length;
+  response.json({ contacts: contacts.slice((page - 1) * limit, page * limit), total, page, limit });
 });
 
 adminLeadsRouter.patch("/:leadId", async (request, response) => {
