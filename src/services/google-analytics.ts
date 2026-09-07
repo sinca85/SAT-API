@@ -34,7 +34,10 @@ async function accessToken() {
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
   });
-  if (!response.ok) throw new Error(`Google OAuth respondió ${response.status}.`);
+  if (!response.ok) {
+    const detail = (await response.text()).replace(/\s+/g, " ").slice(0, 500);
+    throw new Error(`Google OAuth respondió ${response.status}${detail ? `: ${detail}` : "."}`);
+  }
   const body = await response.json() as { access_token?: string; expires_in?: number };
   if (!body.access_token) throw new Error("Google no devolvió un token de acceso.");
   tokenCache = { token: body.access_token, expiresAt: Date.now() + (body.expires_in ?? 3600) * 1000 };
@@ -53,7 +56,10 @@ async function runReport(propertyId: string, body: object): Promise<RunReportRes
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(`Google Analytics respondió ${response.status}.`);
+  if (!response.ok) {
+    const detail = (await response.text()).replace(/\s+/g, " ").slice(0, 700);
+    throw new Error(`Google Analytics respondió ${response.status}${detail ? `: ${detail}` : "."}`);
+  }
   return response.json() as Promise<RunReportResponse>;
 }
 
