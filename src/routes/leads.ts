@@ -6,6 +6,7 @@ import { ALLIANZ_HOME_SOURCE } from "../integrations/highlevel/campaigns/index.j
 import { Lead } from "../models/lead.js";
 import { getHomeQuote, getHomeQuoteOptions } from "../services/home-quotes.js";
 import { upsertLandingContact } from "../services/highlevel-contacts.js";
+import { sendHomeQuoteEmail } from "../services/email.js";
 
 export const HOME_LEAD_SOURCE = ALLIANZ_HOME_SOURCE;
 
@@ -113,7 +114,15 @@ leadsRouter.post("/home", async (request, response) => {
     await lead.save();
   }
 
-  response.status(201).json({ leadId: lead.id, syncStatus: lead.highLevel!.syncStatus, quote });
+  let emailStatus: "sent" | "failed" | "not_configured" = "not_configured";
+  try {
+    const delivery = await sendHomeQuoteEmail({ name: lead.fullName, email: lead.email, homeType: input.homeType, quote });
+    emailStatus = delivery.sent ? "sent" : "not_configured";
+  } catch (error) {
+    emailStatus = "failed";
+    console.error("Could not send home quote email", error);
+  }
+  response.status(201).json({ leadId: lead.id, syncStatus: lead.highLevel!.syncStatus, quote, emailStatus });
 });
 
 leadsRouter.patch("/home/:leadId/contract", async (request, response) => {
