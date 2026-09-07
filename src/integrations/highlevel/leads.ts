@@ -62,6 +62,12 @@ async function getPipelineStageId(pipelineId: string, stageName: string) {
 async function syncSummaryNote(lead: LeadDocument, contactId: string) {
   const note = getHighLevelCampaign(lead.source).buildSummaryNote(lead);
   const fingerprint = createHash("sha256").update(JSON.stringify(note)).digest("hex");
+  // Notes created before this field existed were preliminary quote notes.
+  // Never overwrite them: create the final emission note instead.
+  if (!lead.highLevel?.summaryNoteIsFinal) {
+    lead.highLevel!.summaryNoteId = undefined;
+    lead.highLevel!.summaryNoteFingerprint = undefined;
+  }
   if (lead.highLevel?.summaryNoteFingerprint === fingerprint) return;
 
   // HighLevel only permits two pinned notes per contact. A quote is part of
@@ -97,6 +103,7 @@ async function syncSummaryNote(lead: LeadDocument, contactId: string) {
     await createNote();
   }
   lead.highLevel!.summaryNoteFingerprint = fingerprint;
+  lead.highLevel!.summaryNoteIsFinal = true;
 }
 
 function splitName(fullName: string) {
@@ -231,7 +238,9 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
     lead.highLevel!.syncStatus = "synced";
   }
 
-  await syncSummaryNote(lead, contactId);
+  // A quote alone creates/updates the contact and opportunity. The detailed
+  // note is only useful after the person completes the emission information.
+  if (lead.status === "interested") await syncSummaryNote(lead, contactId);
   lead.highLevel!.syncStatus = "synced";
 
   await lead.save();
