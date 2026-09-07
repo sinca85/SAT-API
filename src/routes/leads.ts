@@ -133,11 +133,6 @@ leadsRouter.patch("/home/:leadId/contract", async (request, response) => {
   lead.email = input.email;
   lead.phone = input.phone;
   lead.status = "interested";
-  // The first quote may already have synchronized the contact. Its note is
-  // intentionally created only once the emission data is complete.
-  lead.highLevel!.summaryNoteId = undefined;
-  lead.highLevel!.summaryNoteFingerprint = undefined;
-  lead.highLevel!.summaryNoteIsFinal = false;
   try {
     await syncLeadToHighLevel(lead);
   } catch (error) {

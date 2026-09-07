@@ -84,7 +84,7 @@ const leadSchema = new Schema(
       opportunityId: String,
       summaryNoteId: String,
       summaryNoteFingerprint: String,
-      summaryNoteIsFinal: { type: Boolean, default: false },
+      summaryNoteUserId: String,
       syncStatus: { type: String, enum: ["pending", "contact_synced", "synced", "failed"], default: "pending" },
       lastSyncedAt: Date,
       lastError: String,
