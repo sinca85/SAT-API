@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
 import { SiteConfig, siteConfigCategories, siteConfigTypes, type SiteConfigType } from "../models/site-config.js";
-import { sendEmailTest } from "../services/email.js";
+import { defaultOutgoingEmail, sendEmailTest } from "../services/email.js";
 
 const slugSchema = z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(120);
 const configInput = z.object({
@@ -41,6 +41,25 @@ adminConfigRouter.use(requireAuthentication, requireActiveUser, requirePermissio
 function canManage(request: Express.Request) {
   return request.user!.permissions.includes("*") || request.user!.permissions.includes("config.manage");
 }
+
+adminConfigRouter.get("/email/settings", async (_request, response) => {
+  const entry = await SiteConfig.findOne({ slug: "email-saliente" }).select("value active").lean();
+  response.json({ outgoingEmail: entry?.value || defaultOutgoingEmail(), active: entry?.active ?? true });
+});
+
+adminConfigRouter.put("/email/settings", async (request, response) => {
+  if (!canManage(request)) { response.status(403).json({ error: "Insufficient permissions" }); return; }
+  const { outgoingEmail } = z.object({ outgoingEmail: z.string().trim().email().max(254) }).parse(request.body);
+  const entry = await SiteConfig.findOneAndUpdate(
+    { slug: "email-saliente" },
+    {
+      $set: { label: "Email saliente", value: outgoingEmail.toLowerCase(), type: "email", category: "contactos", active: true, updatedBy: request.user!.id },
+      $setOnInsert: { slug: "email-saliente", createdBy: request.user!.id },
+    },
+    { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
+  );
+  response.json({ outgoingEmail: entry.value, active: entry.active });
+});
 
 adminConfigRouter.post("/email/test", async (request, response) => {
   if (!canManage(request)) { response.status(403).json({ error: "Insufficient permissions" }); return; }

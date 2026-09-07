@@ -845,7 +845,21 @@ function AnalyticsSettingsTab({ canManage }: { canManage: boolean }) {
 function EmailSettingsTab({ canManage }: { canManage: boolean }) {
   const { message } = AntApp.useApp();
   const [email, setEmail] = useState("");
+  const [outgoingEmail, setOutgoingEmail] = useState("");
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [savingSettings, setSavingSettings] = useState(false);
   const [sending, setSending] = useState(false);
+  useEffect(() => { void (async () => { try { const data = await requestJson<{ outgoingEmail: string }>("/admin/config/email/settings"); setOutgoingEmail(data.outgoingEmail); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo cargar el email saliente."); } finally { setLoadingSettings(false); } })(); }, [message]);
+  const saveOutgoingEmail = async () => {
+    if (!/^\S+@\S+\.\S+$/.test(outgoingEmail)) { message.error("Ingresá un email saliente válido."); return; }
+    setSavingSettings(true);
+    try {
+      const data = await requestJson<{ outgoingEmail: string }>("/admin/config/email/settings", { method: "PUT", body: JSON.stringify({ outgoingEmail }) });
+      setOutgoingEmail(data.outgoingEmail);
+      message.success("Email saliente guardado");
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo guardar el email saliente."); }
+    finally { setSavingSettings(false); }
+  };
   const sendTest = async () => {
     if (!/^\S+@\S+\.\S+$/.test(email)) { message.error("Ingresá un email válido."); return; }
     setSending(true);
@@ -856,7 +870,11 @@ function EmailSettingsTab({ canManage }: { canManage: boolean }) {
     finally { setSending(false); }
   };
   return <Space direction="vertical" size="large" style={{ width: "100%" }}>
-    <Typography.Paragraph type="secondary">Probá el remitente configurado en Resend antes de activar envíos automáticos a quienes cotizan.</Typography.Paragraph>
+    <Typography.Paragraph type="secondary">Este remitente se usa en todos los emails enviados por la API. Debe pertenecer a un dominio verificado en Resend.</Typography.Paragraph>
+    <label>Email saliente<Input disabled={!canManage || loadingSettings} value={outgoingEmail} type="email" placeholder="cotizaciones@seguroatiempo.com" onChange={(event) => setOutgoingEmail(event.target.value)} onPressEnter={() => void saveOutgoingEmail()} /></label>
+    {canManage && <Button type="primary" loading={savingSettings} disabled={loadingSettings} onClick={() => void saveOutgoingEmail()}>Guardar email saliente</Button>}
+    <Divider style={{ margin: "0" }} />
+    <Typography.Paragraph type="secondary">Probá el remitente antes de activar envíos automáticos a quienes cotizan.</Typography.Paragraph>
     <label>Email destinatario<Input disabled={!canManage} value={email} type="email" placeholder="tu@email.com" onChange={(event) => setEmail(event.target.value)} onPressEnter={() => void sendTest()} /></label>
     {canManage && <Button type="primary" loading={sending} onClick={() => void sendTest()}>Enviar prueba de email</Button>}
   </Space>;
