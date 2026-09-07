@@ -16,6 +16,7 @@ import {
   TeamOutlined,
   UserOutlined,
   SyncOutlined,
+  BarChartOutlined,
 } from "@ant-design/icons";
 import {
   App as AntApp,
@@ -40,6 +41,7 @@ import {
   Switch,
   Table,
   Tag,
+  Tabs,
   Typography,
   type MenuProps,
   type TableColumnsType,
@@ -52,7 +54,7 @@ GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 type UserRole = "admin" | "user";
 type UserStatus = "pending" | "active" | "disabled";
-type View = "users" | "roles" | "highlevel-contacts" | "leads" | "faqs" | "ai" | "config";
+type View = "users" | "roles" | "highlevel-contacts" | "leads" | "faqs" | "ai" | "config" | "analytics";
 type LeadStatus = "new" | "pending_contact" | "contacted" | "follow_up" | "interested" | "quote_sent" | "won" | "not_interested" | "not_qualified" | "unresponsive";
 
 interface SessionUser {
@@ -119,6 +121,12 @@ interface ConfigEntry {
   active: boolean;
 }
 
+interface AnalyticsConfiguration {
+  _id?: string;
+  measurementId: string;
+  propertyId: string;
+}
+
 type FaqImportEntry = Omit<FaqEntry, "_id" | "updatedAt">;
 
 interface Lead {
@@ -175,6 +183,7 @@ const viewPaths: Record<View, string> = {
   "highlevel-contacts": "/highlevel/contactos",
   ai: "/ia",
   config: "/config",
+  analytics: "/analytics",
 };
 
 function viewFromPath(pathname: string): View {
@@ -347,6 +356,8 @@ const permissionOptions = [
   { value: "faqs.manage", label: "Crear y administrar FAQs" },
   { value: "ai.view", label: "Acceso a IA" },
   { value: "ai.manage", label: "Configurar IA" },
+  { value: "analytics.view", label: "Ver Analytics" },
+  { value: "analytics.manage", label: "Configurar Analytics" },
 ];
 
 function RolesTable({ roles, loading, onReload }: { roles: AccessRole[]; loading: boolean; onReload: () => Promise<void> }) {
@@ -786,6 +797,23 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
   </>;
 }
 
+function AnalyticsSettingsTab({ canManage }: { canManage: boolean }) {
+  const { message } = AntApp.useApp();
+  const [settings, setSettings] = useState<AnalyticsConfiguration>({ measurementId: "G-WSQ0X7LXTC", propertyId: "" });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { void (async () => { try { const data = await requestJson<{ settings: AnalyticsConfiguration }>("/admin/analytics/settings"); setSettings(data.settings); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo cargar Google Analytics"); } finally { setLoading(false); } })(); }, [message]);
+  const save = async () => { setSaving(true); try { const data = await requestJson<{ settings: AnalyticsConfiguration }>("/admin/analytics/settings", { method: "PUT", body: JSON.stringify(settings) }); setSettings(data.settings); message.success("Configuración de Google Analytics guardada"); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo guardar la configuración"); } finally { setSaving(false); } };
+  return <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Typography.Paragraph type="secondary">El Measurement ID identifica el tag instalado en las landings. Para leer métricas desde el panel también necesitaremos el Property ID numérico de GA4 y una credencial autorizada de Google.</Typography.Paragraph>
+    <Space direction="vertical" style={{ width: "100%" }}>
+      <label>Measurement ID<Input disabled={!canManage || loading} value={settings.measurementId} onChange={(event) => setSettings(current => ({ ...current, measurementId: event.target.value.toUpperCase() }))} placeholder="G-XXXXXXXXXX" /></label>
+      <label>Property ID de GA4 <Typography.Text type="secondary">(necesario para métricas)</Typography.Text><Input disabled={!canManage || loading} value={settings.propertyId} onChange={(event) => setSettings(current => ({ ...current, propertyId: event.target.value.replace(/\D/g, "") }))} placeholder="Ej: 123456789" /></label>
+    </Space>
+    {canManage && <Button type="primary" loading={saving} onClick={() => void save()}>Guardar Google Analytics</Button>}
+  </Space>;
+}
+
 function ConfigPanel({ canManage }: { canManage: boolean }) {
   const { message } = AntApp.useApp();
   const [entries, setEntries] = useState<ConfigEntry[]>([]);
@@ -799,7 +827,7 @@ function ConfigPanel({ canManage }: { canManage: boolean }) {
   const columns: TableColumnsType<ConfigEntry> = [{ title: "Nombre", dataIndex: "label" }, { title: "Slug", dataIndex: "slug", responsive: ["sm"] }, { title: "Valor", dataIndex: "value", ellipsis: true }, { title: "Estado", dataIndex: "active", responsive: ["md"], render: active => <Tag color={active ? "green" : "default"}>{active ? "Activo" : "Inactivo"}</Tag> }, { title: "Acciones", render: (_, entry) => canManage ? <Space><Button size="small" icon={<EditOutlined />} onClick={() => setEditing({ ...entry })}>Editar</Button><Button danger size="small" icon={<DeleteOutlined />} onClick={() => remove(entry)}>Eliminar</Button></Space> : "—" }];
   const section = (title: string, category: ConfigEntry["category"], actions: ReactNode) => <section className="config-section"><Flex justify="space-between" align="center" wrap="wrap" gap={12}><Typography.Title level={4}>{title}</Typography.Title>{canManage && actions}</Flex><Table size="small" loading={loading} rowKey="_id" dataSource={entries.filter(entry => entry.category === category)} columns={columns} pagination={false} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Sin elementos cargados" /> }} /></section>;
   const valuePlaceholder = editing?.type === "email" ? "ventas@seguroatiempo.com" : editing?.type === "whatsapp" ? "54911..." : editing?.type === "direccion" ? "Dirección completa" : "https://instagram.com/...";
-  return <Space direction="vertical" size="large" style={{ width: "100%" }}>
+  const generalContent = <Space direction="vertical" size="large" style={{ width: "100%" }}>
     <Typography.Text type="secondary">Datos reutilizables por slug y categoría. Las landings pueden consultar un dato puntual o el listado completo de una categoría.</Typography.Text>
     {section("Contactos", "contactos", <Space><Button type="primary" onClick={() => openCreate("email")}>Agregar email</Button><Button onClick={() => openCreate("whatsapp")}>Agregar WhatsApp</Button></Space>)}
     {section("Ubicación", "ubicacion", <Button type="primary" onClick={() => openCreate("direccion")}>Agregar dirección</Button>)}
@@ -807,6 +835,20 @@ function ConfigPanel({ canManage }: { canManage: boolean }) {
     <Modal open={Boolean(editing)} title={editing?._id ? "Editar configuración" : "Nueva configuración"} okText="Guardar" cancelText="Cancelar" onCancel={() => setEditing(null)} onOk={() => void save()}>
       {editing && <Space direction="vertical" style={{ width: "100%" }}><Select value={editing.type} onChange={type => setEditing({ ...editing, type })} options={[{ value: "email", label: "Email" }, { value: "whatsapp", label: "WhatsApp" }, { value: "direccion", label: "Dirección" }, { value: "red_social", label: "Red social" }]} /><Input value={editing.label} onChange={event => setEditing({ ...editing, label: event.target.value })} placeholder="Nombre visible (ej. Ventas)" /><Input value={editing.slug} onChange={event => setEditing({ ...editing, slug: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-") })} placeholder="Slug único (ej. whatsapp-ventas)" /><Input.TextArea value={editing.value} onChange={event => setEditing({ ...editing, value: event.target.value })} placeholder={valuePlaceholder} autoSize={{ minRows: 2, maxRows: 4 }} /><Switch checked={editing.active !== false} onChange={active => setEditing({ ...editing, active })} checkedChildren="Activo" unCheckedChildren="Inactivo" /></Space>}
     </Modal>
+  </Space>;
+  return <Tabs items={[{ key: "general", label: "Datos generales", children: generalContent }, { key: "analytics", label: "Google Analytics", children: <AnalyticsSettingsTab canManage={canManage} /> }]} />;
+}
+
+function AnalyticsDashboard() {
+  const { message } = AntApp.useApp();
+  const [data, setData] = useState<{ status: string; message: string; settings: AnalyticsConfiguration } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(async () => { setLoading(true); try { setData(await requestJson("/admin/analytics/overview")); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar las métricas"); } finally { setLoading(false); } }, [message]);
+  useEffect(() => { void load(); }, [load]);
+  if (loading) return <Spin />;
+  return <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}><Descriptions.Item label="Measurement ID">{data?.settings.measurementId || "—"}</Descriptions.Item><Descriptions.Item label="Property ID">{data?.settings.propertyId || "Pendiente"}</Descriptions.Item></Descriptions>
+    <Result status="info" title="Métricas pendientes de conexión" subTitle={data?.message || "No se pudo determinar el estado de Google Analytics."} extra={<Button onClick={() => void load()}>Actualizar estado</Button>} />
   </Space>;
 }
 
@@ -893,9 +935,9 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   }, []);
 
   useEffect(() => {
-    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "ai" && can("ai.view")) || (view === "config" && can("config.view")) || (view === "highlevel-contacts" && can("highlevel.view") && can("highlevel.contacts.view"));
+    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "ai" && can("ai.view")) || (view === "config" && can("config.view")) || (view === "analytics" && can("analytics.view")) || (view === "highlevel-contacts" && can("highlevel.view") && can("highlevel.contacts.view"));
     if (allowed) return;
-    const fallback: View | undefined = can("leads.view") ? "leads" : can("faqs.view") ? "faqs" : can("ai.view") ? "ai" : can("config.view") ? "config" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.view") && can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
+    const fallback: View | undefined = can("leads.view") ? "leads" : can("faqs.view") ? "faqs" : can("ai.view") ? "ai" : can("analytics.view") ? "analytics" : can("config.view") ? "config" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.view") && can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
     if (fallback) navigate(fallback);
   }, [can, navigate, view]);
 
@@ -937,6 +979,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
             {can("leads.view") && <Button type="text" className="header-menu-button" icon={<ContactsOutlined />} onClick={() => navigate("leads")}>Leads</Button>}
             {can("faqs.view") && <Button type="text" className="header-menu-button" icon={<SafetyCertificateOutlined />} onClick={() => navigate("faqs")}>FAQs</Button>}
             {can("ai.view") && <Button type="text" className="header-menu-button" icon={<SafetyCertificateOutlined />} onClick={() => navigate("ai")}>IA</Button>}
+            {can("analytics.view") && <Button type="text" className="header-menu-button" icon={<BarChartOutlined />} onClick={() => navigate("analytics")}>Analytics</Button>}
             {can("config.view") && <Button type="text" className="header-menu-button" icon={<SettingOutlined />} onClick={() => navigate("config")}>Config</Button>}
             {(can("users.view") || can("roles.manage")) &&
             <Dropdown
@@ -970,7 +1013,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <Flex justify="space-between" align="center" gap={16} wrap="wrap" className="page-heading">
           <div>
             <Typography.Title level={2}>
-              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : view === "ai" ? "Inteligencia artificial" : view === "config" ? "Configuración" : "Contactos"}
+              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : view === "ai" ? "Inteligencia artificial" : view === "analytics" ? "Analytics" : view === "config" ? "Configuración" : "Contactos"}
             </Typography.Title>
             <Typography.Text type="secondary">
               {view === "users"
@@ -981,7 +1024,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
                     ? "Solicitudes recibidas desde los cotizadores y su estado de sincronización."
                     : view === "faqs"
                       ? "Base de preguntas y respuestas organizada por aseguradora y tipo de seguro."
-                    : view === "ai" ? "Asistentes y bases de conocimiento por aseguradora y tipo de seguro." : view === "config" ? "Datos reutilizables por las landings y los asistentes." : "Copia local de los contactos de la subcuenta de Seguro a Tiempo. Usá Sincronizar para actualizarla."}
+                    : view === "ai" ? "Asistentes y bases de conocimiento por aseguradora y tipo de seguro." : view === "analytics" ? "Métricas y estado de conexión de Google Analytics." : view === "config" ? "Datos reutilizables por las landings y los asistentes." : "Copia local de los contactos de la subcuenta de Seguro a Tiempo. Usá Sincronizar para actualizarla."}
             </Typography.Text>
           </div>
           {view === "users" && (
@@ -1004,6 +1047,8 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
             can("ai.view") ? <AIKnowledgePanel canManage={can("ai.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : view === "config" ? (
             can("config.view") ? <ConfigPanel canManage={can("config.manage")} /> : <Result status="403" title="Sin acceso" />
+          ) : view === "analytics" ? (
+            can("analytics.view") ? <AnalyticsDashboard /> : <Result status="403" title="Sin acceso" />
           ) : (
             can("highlevel.view") && can("highlevel.contacts.view") ? <HighLevelContacts /> : <Result status="403" title="Sin acceso" />
           )}
