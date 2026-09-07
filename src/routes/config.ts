@@ -45,8 +45,12 @@ function canManage(request: Express.Request) {
 adminConfigRouter.post("/email/test", async (request, response) => {
   if (!canManage(request)) { response.status(403).json({ error: "Insufficient permissions" }); return; }
   const { email } = z.object({ email: z.string().trim().email().max(254) }).parse(request.body);
-  const result = await sendEmailTest(email);
-  response.json({ sent: true, id: result.id });
+  try {
+    const result = await sendEmailTest(email);
+    response.json({ sent: true, id: result.id });
+  } catch (error) {
+    response.status(502).json({ error: error instanceof Error ? error.message : "No se pudo enviar el email de prueba." });
+  }
 });
 
 adminConfigRouter.get("/", async (_request, response) => {
