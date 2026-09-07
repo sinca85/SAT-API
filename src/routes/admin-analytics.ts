@@ -2,6 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
 import { AnalyticsSettings } from "../models/analytics-settings.js";
+import { env } from "../config/env.js";
+import { getAnalyticsOverview } from "../services/google-analytics.js";
 
 const defaultMeasurementId = "G-WSQ0X7LXTC";
 const settingsInput = z.object({
@@ -40,11 +42,15 @@ adminAnalyticsRouter.get("/overview", requirePermission("analytics.view"), async
     response.json({ status: "needs_property_id", settings: configuration, message: "Cargá el Property ID numérico de GA4 para conectar las métricas." });
     return;
   }
-  response.json({
-    status: "needs_credentials",
-    settings: configuration,
-    message: "Falta autorizar una credencial de Google Analytics Data API para leer las métricas de esta propiedad.",
-  });
+  if (!env.GOOGLE_ANALYTICS_SERVICE_ACCOUNT_EMAIL || !env.GOOGLE_ANALYTICS_SERVICE_ACCOUNT_PRIVATE_KEY) {
+    response.json({ status: "needs_credentials", settings: configuration, message: "Faltan las credenciales de cuenta de servicio de Google Analytics en Vercel." });
+    return;
+  }
+  try {
+    response.json({ status: "connected", settings: configuration, overview: await getAnalyticsOverview(configuration.propertyId) });
+  } catch (error) {
+    response.json({ status: "connection_error", settings: configuration, message: error instanceof Error ? error.message : "No se pudo consultar Google Analytics." });
+  }
 });
 
 export const publicAnalyticsRouter = Router();

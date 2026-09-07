@@ -9,6 +9,8 @@ const envSchema = z.object({
   SESSION_SECRET: z.string().min(32).default("local-development-secret-change-me"),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_ANALYTICS_SERVICE_ACCOUNT_EMAIL: z.string().email().optional(),
+  GOOGLE_ANALYTICS_SERVICE_ACCOUNT_PRIVATE_KEY: z.string().min(1).optional(),
   GOOGLE_CALLBACK_URL: z
     .string()
     .url()

@@ -38,6 +38,7 @@ import {
   Select,
   Space,
   Spin,
+  Statistic,
   Switch,
   Table,
   Tag,
@@ -868,11 +869,23 @@ function ConfigPanel({ canManage }: { canManage: boolean }) {
 
 function AnalyticsDashboard() {
   const { message } = AntApp.useApp();
-  const [data, setData] = useState<{ status: string; message: string; settings: AnalyticsConfiguration } | null>(null);
+  const [data, setData] = useState<{ status: string; message?: string; settings: AnalyticsConfiguration; overview?: { period: string; activeUsers: number; sessions: number; pageViews: number; channels: Array<{ name: string; activeUsers: number; sessions: number }> } } | null>(null);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => { setLoading(true); try { setData(await requestJson("/admin/analytics/overview")); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar las métricas"); } finally { setLoading(false); } }, [message]);
   useEffect(() => { void load(); }, [load]);
   if (loading) return <Spin />;
+  if (data?.status === "connected" && data.overview) {
+    const channelColumns: TableColumnsType<{ name: string; activeUsers: number; sessions: number }> = [
+      { title: "Canal", dataIndex: "name" },
+      { title: "Usuarios", dataIndex: "activeUsers", align: "right" },
+      { title: "Sesiones", dataIndex: "sessions", align: "right" },
+    ];
+    return <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <Flex justify="space-between" align="center" wrap="wrap" gap={12}><Typography.Text type="secondary">{data.overview.period}</Typography.Text><Button onClick={() => void load()}>Actualizar métricas</Button></Flex>
+      <Flex gap={16} wrap="wrap">{[["Usuarios activos", data.overview.activeUsers], ["Sesiones", data.overview.sessions], ["Vistas de página", data.overview.pageViews]].map(([title, value]) => <div key={title as string} style={{ minWidth: 205, flex: "1 1 205px", padding: "22px 24px", border: "1px solid #e4ebf4", borderRadius: 14, background: "#fff" }}><Statistic title={title as string} value={value as number} /></div>)}</Flex>
+      <section className="config-section"><Typography.Title level={4}>Canales de adquisición</Typography.Title><Table rowKey="name" size="small" columns={channelColumns} dataSource={data.overview.channels} pagination={false} /></section>
+    </Space>;
+  }
   return <Space direction="vertical" size="large" style={{ width: "100%" }}>
     <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}><Descriptions.Item label="Measurement ID">{data?.settings.measurementId || "—"}</Descriptions.Item><Descriptions.Item label="Property ID">{data?.settings.propertyId || "Pendiente"}</Descriptions.Item></Descriptions>
     <Result status="info" title="Métricas pendientes de conexión" subTitle={data?.message || "No se pudo determinar el estado de Google Analytics."} extra={<Button onClick={() => void load()}>Actualizar estado</Button>} />
