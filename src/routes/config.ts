@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
 import { SiteConfig, siteConfigCategories, siteConfigTypes, type SiteConfigType } from "../models/site-config.js";
+import { sendEmailTest } from "../services/email.js";
 
 const slugSchema = z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(120);
 const configInput = z.object({
@@ -40,6 +41,13 @@ adminConfigRouter.use(requireAuthentication, requireActiveUser, requirePermissio
 function canManage(request: Express.Request) {
   return request.user!.permissions.includes("*") || request.user!.permissions.includes("config.manage");
 }
+
+adminConfigRouter.post("/email/test", async (request, response) => {
+  if (!canManage(request)) { response.status(403).json({ error: "Insufficient permissions" }); return; }
+  const { email } = z.object({ email: z.string().trim().email().max(254) }).parse(request.body);
+  const result = await sendEmailTest(email);
+  response.json({ sent: true, id: result.id });
+});
 
 adminConfigRouter.get("/", async (_request, response) => {
   response.json({ entries: await SiteConfig.find().sort({ category: 1, label: 1 }).lean() });

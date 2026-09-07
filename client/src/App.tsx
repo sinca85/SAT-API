@@ -842,6 +842,26 @@ function AnalyticsSettingsTab({ canManage }: { canManage: boolean }) {
   </Space>;
 }
 
+function EmailSettingsTab({ canManage }: { canManage: boolean }) {
+  const { message } = AntApp.useApp();
+  const [email, setEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  const sendTest = async () => {
+    if (!/^\S+@\S+\.\S+$/.test(email)) { message.error("Ingresá un email válido."); return; }
+    setSending(true);
+    try {
+      const result = await requestJson<{ id?: string }>("/admin/config/email/test", { method: "POST", body: JSON.stringify({ email }) });
+      message.success(`Email enviado correctamente${result.id ? ` · ID ${result.id}` : ""}`);
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo enviar el email de prueba."); }
+    finally { setSending(false); }
+  };
+  return <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Typography.Paragraph type="secondary">Probá el remitente configurado en Resend antes de activar envíos automáticos a quienes cotizan.</Typography.Paragraph>
+    <label>Email destinatario<Input disabled={!canManage} value={email} type="email" placeholder="tu@email.com" onChange={(event) => setEmail(event.target.value)} onPressEnter={() => void sendTest()} /></label>
+    {canManage && <Button type="primary" loading={sending} onClick={() => void sendTest()}>Enviar prueba de email</Button>}
+  </Space>;
+}
+
 function ConfigPanel({ canManage }: { canManage: boolean }) {
   const { message } = AntApp.useApp();
   const [entries, setEntries] = useState<ConfigEntry[]>([]);
@@ -864,7 +884,7 @@ function ConfigPanel({ canManage }: { canManage: boolean }) {
       {editing && <Space direction="vertical" style={{ width: "100%" }}><Select value={editing.type} onChange={type => setEditing({ ...editing, type })} options={[{ value: "email", label: "Email" }, { value: "whatsapp", label: "WhatsApp" }, { value: "direccion", label: "Dirección" }, { value: "red_social", label: "Red social" }]} /><Input value={editing.label} onChange={event => setEditing({ ...editing, label: event.target.value })} placeholder="Nombre visible (ej. Ventas)" /><Input value={editing.slug} onChange={event => setEditing({ ...editing, slug: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-") })} placeholder="Slug único (ej. whatsapp-ventas)" /><Input.TextArea value={editing.value} onChange={event => setEditing({ ...editing, value: event.target.value })} placeholder={valuePlaceholder} autoSize={{ minRows: 2, maxRows: 4 }} /><Switch checked={editing.active !== false} onChange={active => setEditing({ ...editing, active })} checkedChildren="Activo" unCheckedChildren="Inactivo" /></Space>}
     </Modal>
   </Space>;
-  return <Tabs items={[{ key: "general", label: "Datos generales", children: generalContent }, { key: "analytics", label: "Google Analytics", children: <AnalyticsSettingsTab canManage={canManage} /> }]} />;
+  return <Tabs items={[{ key: "general", label: "Datos generales", children: generalContent }, { key: "analytics", label: "Google Analytics", children: <AnalyticsSettingsTab canManage={canManage} /> }, { key: "email", label: "Email", children: <EmailSettingsTab canManage={canManage} /> }]} />;
 }
 
 function AnalyticsDashboard() {
