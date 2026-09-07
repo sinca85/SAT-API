@@ -4,6 +4,7 @@ import { requireActiveUser, requireAuthentication, requirePermission } from "../
 import { env } from "../config/env.js";
 import { highLevelClient } from "../integrations/highlevel/client.js";
 import { HighLevelContact } from "../models/highlevel-contact.js";
+import { HighLevelSyncState } from "../models/highlevel-sync-state.js";
 import { upsertHighLevelContact, type HighLevelContactInput } from "../services/highlevel-contacts.js";
 
 const contactsQuerySchema = z.object({
@@ -33,10 +34,11 @@ adminHighLevelRouter.get("/contacts", async (request, response) => {
     ...(search ? { $or: ["fullName", "firstName", "lastName", "email", "phone", "tags"].map((field) => ({ [field]: { $regex: escapeRegex(search), $options: "i" } })) } : {}),
     ...(tag ? { tags: tag } : {}),
   };
-  const [contacts, total, tags] = await Promise.all([
+  const [contacts, total, tags, syncState] = await Promise.all([
     HighLevelContact.find(filter).sort({ updatedAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
     HighLevelContact.countDocuments(filter),
     HighLevelContact.distinct("tags"),
+    HighLevelSyncState.findOne({ key: "contacts" }).lean(),
   ]);
   response.json({
     contacts: contacts.map((contact) => ({ ...contact, id: contact.highLevelId || String(contact._id) })),
@@ -44,6 +46,7 @@ adminHighLevelRouter.get("/contacts", async (request, response) => {
     page,
     limit,
     tags: tags.filter((value): value is string => typeof value === "string").sort((a, b) => a.localeCompare(b, "es")),
+    lastSync: syncState,
   });
 });
 
@@ -73,5 +76,11 @@ adminHighLevelRouter.post("/contacts/sync", async (_request, response) => {
     if (!batch.length || batch.length < pageLimit || (remoteTotal !== undefined && processed >= remoteTotal)) break;
     page += 1;
   }
-  response.json({ processed, created, updated, total: await HighLevelContact.countDocuments() });
+  const lastSyncedAt = new Date();
+  await HighLevelSyncState.findOneAndUpdate(
+    { key: "contacts" },
+    { $set: { lastSyncedAt, processed, created, updated } },
+    { upsert: true, new: true },
+  );
+  response.json({ processed, created, updated, total: await HighLevelContact.countDocuments(), lastSyncedAt });
 });

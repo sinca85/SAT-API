@@ -539,6 +539,7 @@ function HighLevelContacts() {
   const [search, setSearch] = useState("");
   const [tag, setTag] = useState<string | undefined>();
   const [tags, setTags] = useState<string[]>([]);
+  const [lastSync, setLastSync] = useState<{ lastSyncedAt: string; processed: number; created: number; updated: number } | null>(null);
   const pageSize = 25;
 
   const loadContacts = useCallback(async (nextPage: number) => {
@@ -548,10 +549,12 @@ function HighLevelContacts() {
         contacts: HighLevelContact[];
         total: number;
         tags: string[];
+        lastSync?: { lastSyncedAt: string; processed: number; created: number; updated: number } | null;
       }>(`/admin/highlevel/contacts?${new URLSearchParams({ page: String(nextPage), limit: String(pageSize), ...(search.trim() ? { search: search.trim() } : {}), ...(tag ? { tag } : {}) })}`);
       setContacts(data.contacts);
       setTotal(data.total);
       setTags(data.tags);
+      setLastSync(data.lastSync ?? null);
     } catch (error) {
       message.error(error instanceof Error ? error.message : "No se pudieron cargar los contactos");
     } finally {
@@ -566,8 +569,9 @@ function HighLevelContacts() {
   const synchronize = async () => {
     setSyncing(true);
     try {
-      const result = await requestJson<{ processed: number; created: number; updated: number; total: number }>("/admin/highlevel/contacts/sync", { method: "POST" });
+      const result = await requestJson<{ processed: number; created: number; updated: number; total: number; lastSyncedAt: string }>("/admin/highlevel/contacts/sync", { method: "POST" });
       message.success(`Sincronización terminada: ${result.processed} contactos procesados (${result.created} nuevos, ${result.updated} actualizados).`);
+      setLastSync({ lastSyncedAt: result.lastSyncedAt, processed: result.processed, created: result.created, updated: result.updated });
       await loadContacts(1);
       setPage(1);
     } catch (error) {
@@ -609,7 +613,7 @@ function HighLevelContacts() {
   ];
 
   return <>
-    <Flex justify="space-between" gap={12} wrap="wrap" style={{ marginBottom: 16 }}><Space wrap><Input.Search allowClear placeholder="Buscar por nombre, email, teléfono o etiqueta" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} style={{ width: 310, maxWidth: "100%" }} /><Select allowClear placeholder="Filtrar por etiqueta" value={tag} onChange={(value) => { setTag(value); setPage(1); }} options={tags.map((value) => ({ value, label: value }))} style={{ width: 210, maxWidth: "100%" }} /></Space><Button type="primary" icon={<SyncOutlined />} loading={syncing} onClick={() => void synchronize()}>Sincronizar</Button></Flex>
+    <Flex justify="space-between" gap={12} wrap="wrap" style={{ marginBottom: 16 }}><Space direction="vertical" size={4}><Space wrap><Input.Search allowClear placeholder="Buscar por nombre, email, teléfono o etiqueta" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} style={{ width: 310, maxWidth: "100%" }} /><Select allowClear placeholder="Filtrar por etiqueta" value={tag} onChange={(value) => { setTag(value); setPage(1); }} options={tags.map((value) => ({ value, label: value }))} style={{ width: 210, maxWidth: "100%" }} /></Space>{lastSync && <Typography.Text type="secondary">Última sincronización: {new Intl.DateTimeFormat("es-AR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(lastSync.lastSyncedAt))} · {lastSync.processed} procesados</Typography.Text>}</Space><Button type="primary" icon={<SyncOutlined />} loading={syncing} onClick={() => void synchronize()}>Sincronizar</Button></Flex>
     <Table
       rowKey="id"
       columns={columns}
