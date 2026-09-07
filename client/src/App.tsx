@@ -944,7 +944,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         </Space>
       </Layout.Header>
 
-      <Layout.Content className="admin-content">
+      <Layout.Content className={`admin-content${view === "leads" ? " leads-content" : ""}`}>
         <Flex justify="space-between" align="center" gap={16} wrap="wrap" className="page-heading">
           <div>
             <Typography.Title level={2}>
