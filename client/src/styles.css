@@ -98,6 +98,11 @@ input {
   padding: 44px 0 64px;
 }
 
+/* Lead management is a dense operational view; let its table use the screen. */
+.admin-content.leads-content {
+  width: min(1760px, calc(100% - 48px));
+}
+
 .page-heading {
   margin-bottom: 24px;
 }
@@ -248,6 +253,10 @@ input {
   .admin-content {
     width: min(100% - 24px, 1180px);
     padding-top: 28px;
+  }
+
+  .admin-content.leads-content {
+    width: calc(100% - 24px);
   }
 
   .permissions-select {
