@@ -525,6 +525,9 @@ function HighLevelContacts() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const [search, setSearch] = useState("");
+  const [tag, setTag] = useState<string | undefined>();
+  const [tags, setTags] = useState<string[]>([]);
   const pageSize = 25;
 
   const loadContacts = useCallback(async (nextPage: number) => {
@@ -533,15 +536,17 @@ function HighLevelContacts() {
       const data = await requestJson<{
         contacts: HighLevelContact[];
         total: number;
-      }>(`/admin/highlevel/contacts?page=${nextPage}&limit=${pageSize}`);
+        tags: string[];
+      }>(`/admin/highlevel/contacts?${new URLSearchParams({ page: String(nextPage), limit: String(pageSize), ...(search.trim() ? { search: search.trim() } : {}), ...(tag ? { tag } : {}) })}`);
       setContacts(data.contacts);
       setTotal(data.total);
+      setTags(data.tags);
     } catch (error) {
       message.error(error instanceof Error ? error.message : "No se pudieron cargar los contactos");
     } finally {
       setLoading(false);
     }
-  }, [message]);
+  }, [message, search, tag]);
 
   useEffect(() => {
     void loadContacts(page);
@@ -593,7 +598,7 @@ function HighLevelContacts() {
   ];
 
   return <>
-    <Flex justify="flex-end" style={{ marginBottom: 16 }}><Button type="primary" icon={<SyncOutlined />} loading={syncing} onClick={() => void synchronize()}>Sincronizar</Button></Flex>
+    <Flex justify="space-between" gap={12} wrap="wrap" style={{ marginBottom: 16 }}><Space wrap><Input.Search allowClear placeholder="Buscar por nombre, email, teléfono o etiqueta" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} style={{ width: 310, maxWidth: "100%" }} /><Select allowClear placeholder="Filtrar por etiqueta" value={tag} onChange={(value) => { setTag(value); setPage(1); }} options={tags.map((value) => ({ value, label: value }))} style={{ width: 210, maxWidth: "100%" }} /></Space><Button type="primary" icon={<SyncOutlined />} loading={syncing} onClick={() => void synchronize()}>Sincronizar</Button></Flex>
     <Table
       rowKey="id"
       columns={columns}

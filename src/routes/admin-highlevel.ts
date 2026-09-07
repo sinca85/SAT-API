@@ -9,7 +9,13 @@ import { upsertHighLevelContact, type HighLevelContactInput } from "../services/
 const contactsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(25),
+  search: z.string().trim().max(160).optional(),
+  tag: z.string().trim().max(160).optional(),
 });
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 interface HighLevelContactsResponse {
   contacts?: HighLevelContactInput[];
@@ -22,16 +28,22 @@ export const adminHighLevelRouter = Router();
 adminHighLevelRouter.use(requireAuthentication, requireActiveUser, requirePermission("highlevel.view"), requirePermission("highlevel.contacts.view"));
 
 adminHighLevelRouter.get("/contacts", async (request, response) => {
-  const { page, limit } = contactsQuerySchema.parse(request.query);
-  const [contacts, total] = await Promise.all([
-    HighLevelContact.find().sort({ updatedAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
-    HighLevelContact.countDocuments(),
+  const { page, limit, search, tag } = contactsQuerySchema.parse(request.query);
+  const filter = {
+    ...(search ? { $or: ["fullName", "firstName", "lastName", "email", "phone", "tags"].map((field) => ({ [field]: { $regex: escapeRegex(search), $options: "i" } })) } : {}),
+    ...(tag ? { tags: tag } : {}),
+  };
+  const [contacts, total, tags] = await Promise.all([
+    HighLevelContact.find(filter).sort({ updatedAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    HighLevelContact.countDocuments(filter),
+    HighLevelContact.distinct("tags"),
   ]);
   response.json({
     contacts: contacts.map((contact) => ({ ...contact, id: contact.highLevelId || String(contact._id) })),
     total,
     page,
     limit,
+    tags: tags.filter((value): value is string => typeof value === "string").sort((a, b) => a.localeCompare(b, "es")),
   });
 });
 
