@@ -176,7 +176,11 @@ export async function syncLeadToHighLevel(lead: LeadDocument, options: { forceNo
   let recoveredContactId = existingContactId;
   let contactData: UpsertContactResponse;
   if (existingContactId) {
-    const recovered = await updateContactWithDuplicateRecovery(existingContactId);
+    // Once the first form step chose a HighLevel contact, keep that contact as
+    // the canonical one for the rest of this submission. Re-sending email or
+    // phone here can make HighLevel resolve an old duplicate and move the sync
+    // to another contact, where the stored note ID does not belong.
+    const recovered = await updateContactWithDuplicateRecovery(existingContactId, new Set<string>(), true);
     contactData = recovered.contactData;
     recoveredContactId = recovered.contactId;
   } else {
