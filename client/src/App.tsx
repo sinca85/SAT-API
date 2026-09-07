@@ -81,13 +81,19 @@ interface AdminUser {
 
 interface HighLevelContact {
   id: string;
+  _id?: string;
   contactName?: string;
+  fullName?: string;
   firstName?: string;
   lastName?: string;
   email?: string;
   phone?: string;
   dateAdded?: string;
   tags?: string[];
+  highLevelId?: string;
+  source?: "highlevel" | "landing";
+  lastHighLevelSyncAt?: string;
+  highLevelData?: Record<string, unknown>;
 }
 
 interface AccessRole {
@@ -540,6 +546,7 @@ function HighLevelContacts() {
   const [tag, setTag] = useState<string | undefined>();
   const [tags, setTags] = useState<string[]>([]);
   const [lastSync, setLastSync] = useState<{ lastSyncedAt: string; processed: number; created: number; updated: number } | null>(null);
+  const [selectedContact, setSelectedContact] = useState<HighLevelContact | null>(null);
   const pageSize = 25;
 
   const loadContacts = useCallback(async (nextPage: number) => {
@@ -586,7 +593,7 @@ function HighLevelContacts() {
       title: "Contacto",
       key: "contact",
       render: (_, contact) => {
-        const fullName = contact.contactName || [contact.firstName, contact.lastName].filter(Boolean).join(" ") || "Sin nombre";
+        const fullName = contact.fullName || contact.contactName || [contact.firstName, contact.lastName].filter(Boolean).join(" ") || "Sin nombre";
         return (
           <Space>
             <Avatar icon={<UserOutlined />}>{fullName.slice(0, 1).toUpperCase()}</Avatar>
@@ -629,7 +636,23 @@ function HighLevelContacts() {
         showTotal: (count) => `${count} contactos`,
       }}
       locale={{ emptyText: <Empty description="Todavía no hay contactos sincronizados" /> }}
+      onRow={(contact) => ({ onClick: () => setSelectedContact(contact), className: "clickable-row" })}
     />
+    <Drawer open={Boolean(selectedContact)} width={620} title="Detalle del contacto" onClose={() => setSelectedContact(null)}>
+      {selectedContact && <>
+        <Typography.Title level={4} style={{ marginTop: 0 }}>{selectedContact.fullName || selectedContact.contactName || [selectedContact.firstName, selectedContact.lastName].filter(Boolean).join(" ") || "Sin nombre"}</Typography.Title>
+        <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
+          <Descriptions.Item label="Nombre">{selectedContact.firstName || "—"}</Descriptions.Item><Descriptions.Item label="Apellido">{selectedContact.lastName || "—"}</Descriptions.Item>
+          <Descriptions.Item label="Email">{selectedContact.email || "—"}</Descriptions.Item><Descriptions.Item label="Teléfono">{selectedContact.phone || "—"}</Descriptions.Item>
+          <Descriptions.Item label="Etiquetas" span={2}>{selectedContact.tags?.length ? <Space size={[0, 6]} wrap>{selectedContact.tags.map((value) => <Tag key={value}>{value}</Tag>)}</Space> : "—"}</Descriptions.Item>
+          <Descriptions.Item label="ID de HighLevel" span={2}>{selectedContact.highLevelId || "Pendiente de sincronización"}</Descriptions.Item>
+          <Descriptions.Item label="Origen">{selectedContact.source === "landing" ? "Landing de cotización" : "HighLevel"}</Descriptions.Item>
+          <Descriptions.Item label="Creado en HighLevel">{selectedContact.dateAdded ? new Intl.DateTimeFormat("es-AR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(selectedContact.dateAdded)) : "—"}</Descriptions.Item>
+          <Descriptions.Item label="Actualizado desde HighLevel" span={2}>{selectedContact.lastHighLevelSyncAt ? new Intl.DateTimeFormat("es-AR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(selectedContact.lastHighLevelSyncAt)) : "—"}</Descriptions.Item>
+        </Descriptions>
+        {selectedContact.highLevelData && Object.keys(selectedContact.highLevelData).length > 0 && <><Divider /><Typography.Title level={5}>Información adicional sincronizada</Typography.Title><pre style={{ maxHeight: 320, margin: 0, padding: 12, overflow: "auto", borderRadius: 8, background: "#f5f8fc", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12 }}>{JSON.stringify(selectedContact.highLevelData, null, 2)}</pre></>}
+      </>}
+    </Drawer>
   </>;
 }
 
