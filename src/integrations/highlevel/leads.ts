@@ -125,24 +125,27 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
     customFields,
     source: lead.source,
   };
-  const updateContact = (contactId: string) => highLevelClient.request<UpsertContactResponse>(
+  const updateContact = (contactId: string, preserveExistingIdentifiers = false) => highLevelClient.request<UpsertContactResponse>(
     `/contacts/${contactId}`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json", Version: "v3" },
-      body: JSON.stringify({ ...contactPayload, locationId: undefined }),
+      // When HighLevel itself matched this contact through email or phone, it
+      // may reject those same identifiers in an update payload. Keep the
+      // existing primary identifiers and still update all other lead fields.
+      body: JSON.stringify({ ...contactPayload, locationId: undefined, ...(preserveExistingIdentifiers ? { email: undefined, phone: undefined } : {}) }),
     },
   );
-  const updateContactWithDuplicateRecovery = async (contactId: string, visited = new Set<string>()): Promise<{ contactData: UpsertContactResponse; contactId: string }> => {
+  const updateContactWithDuplicateRecovery = async (contactId: string, visited = new Set<string>(), preserveExistingIdentifiers = false): Promise<{ contactData: UpsertContactResponse; contactId: string }> => {
     visited.add(contactId);
     try {
-      return { contactData: await updateContact(contactId), contactId };
+      return { contactData: await updateContact(contactId, preserveExistingIdentifiers), contactId };
     } catch (error) {
       const duplicateContactId = duplicateContactIdFromError(error);
       if (!duplicateContactId || visited.has(duplicateContactId)) throw error;
       // The submitted email and phone can point to different existing contacts.
       // Follow HighLevel's returned match and update that contact instead.
-      return updateContactWithDuplicateRecovery(duplicateContactId, visited);
+      return updateContactWithDuplicateRecovery(duplicateContactId, visited, true);
     }
   };
   let recoveredContactId = existingContactId;
@@ -161,7 +164,7 @@ export async function syncLeadToHighLevel(lead: LeadDocument) {
     } catch (error) {
       const duplicateContactId = duplicateContactIdFromError(error);
       if (!duplicateContactId) throw error;
-      const recovered = await updateContactWithDuplicateRecovery(duplicateContactId);
+      const recovered = await updateContactWithDuplicateRecovery(duplicateContactId, new Set<string>(), true);
       recoveredContactId = recovered.contactId;
       contactData = recovered.contactData;
     }
