@@ -17,6 +17,8 @@ export const accessPermissions = [
   "ai.manage",
   "analytics.view",
   "analytics.manage",
+  "landings.view",
+  "landings.manage",
 ] as const;
 
 export type AccessPermission = (typeof accessPermissions)[number] | "*";

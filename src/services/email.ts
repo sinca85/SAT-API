@@ -2,6 +2,20 @@ import { env } from "../config/env.js";
 import { SiteConfig } from "../models/site-config.js";
 import type { HomeQuote } from "./home-quotes.js";
 
+type HomeContractLead = {
+  fullName: string;
+  email: string;
+  phone: string;
+  personal?: {
+    dni?: string;
+    dateOfBirth?: string;
+    address?: string;
+    floor?: string;
+    apartment?: string;
+  } | null;
+  quote?: (Pick<HomeQuote, "quotedSquareMeters" | "monthlyPrice"> & { homeType: string }) | null;
+};
+
 const money = (amount: number) => new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(amount);
 const escapeHtml = (value: string) => value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]!);
 
@@ -16,6 +30,11 @@ async function sender() {
   const outgoingEmail = (configured?.value || defaultOutgoingEmail()).trim();
   if (!outgoingEmail) throw new Error("Configurá el email saliente antes de enviar mensajes.");
   return `Seguro a Tiempo <${outgoingEmail}>`;
+}
+
+async function commercialRecipient() {
+  const commercial = await SiteConfig.findOne({ slug: "email-comercial", type: "email", active: true }).select("value").lean();
+  return commercial?.value?.trim() || "";
 }
 
 export async function sendHomeQuoteEmail(input: { name: string; email: string; homeType: string; quote: HomeQuote }) {
@@ -54,4 +73,27 @@ export async function sendEmailTest(to: string) {
   });
   if (!response.ok) throw new Error(`Resend respondió ${response.status}: ${(await response.text()).slice(0, 500)}`);
   return await response.json() as { id?: string };
+}
+
+export async function sendHomeContractNotificationEmail(lead: HomeContractLead) {
+  const to = await commercialRecipient();
+  if (!to) return { sent: false, reason: "commercial_email_not_configured" as const };
+  const from = await sender();
+  const personal = lead.personal ?? {};
+  const quote = lead.quote;
+  if (!quote) throw new Error("La solicitud no tiene una cotización asociada.");
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      from,
+      to: [to],
+      subject: `Solicitud de contratación · ${lead.fullName} · Seguro Hogar`,
+      html: `<!doctype html><html lang="es"><body style="margin:0;background:#f5f8fc;font-family:Arial,sans-serif;color:#17324d"><main style="max-width:620px;margin:32px auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #dbe5f0"><header style="padding:28px 34px;background:#073ea7;color:#fff"><strong style="font-size:24px">Seguro a Tiempo</strong><p style="margin:8px 0 0;font-size:14px">Nueva solicitud de contratación · Seguro Hogar Allianz</p></header><section style="padding:30px 34px"><h1 style="margin:0 0 16px;font-size:23px">${escapeHtml(lead.fullName)}</h1><p style="line-height:1.55">El cliente completó sus datos para contratar la cotización.</p><h2 style="font-size:18px">Cotización</h2><table style="width:100%;border-collapse:collapse;font-size:14px"><tbody><tr><td style="padding:8px 0;border-bottom:1px solid #e6edf5">Vivienda</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${escapeHtml(quote.homeType)} · ${quote.quotedSquareMeters} m²</td></tr><tr><td style="padding:8px 0">Cuota mensual</td><td style="text-align:right"><strong>${money(quote.monthlyPrice)}</strong></td></tr></tbody></table><h2 style="font-size:18px;margin-top:26px">Datos para emitir</h2><table style="width:100%;border-collapse:collapse;font-size:14px"><tbody><tr><td style="padding:7px 0;border-bottom:1px solid #e6edf5">DNI</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${escapeHtml(personal.dni || "—")}</td></tr><tr><td style="padding:7px 0;border-bottom:1px solid #e6edf5">Fecha de nacimiento</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${escapeHtml(personal.dateOfBirth || "—")}</td></tr><tr><td style="padding:7px 0;border-bottom:1px solid #e6edf5">Domicilio</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${escapeHtml(personal.address || "—")}</td></tr><tr><td style="padding:7px 0;border-bottom:1px solid #e6edf5">Piso / departamento</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${escapeHtml(personal.floor || "—")} ${escapeHtml(personal.apartment || "")}</td></tr><tr><td style="padding:7px 0;border-bottom:1px solid #e6edf5">Email</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${escapeHtml(lead.email)}</td></tr><tr><td style="padding:7px 0">Celular</td><td style="text-align:right">${escapeHtml(lead.phone)}</td></tr></tbody></table></section></main></body></html>`,
+      text: `Nueva solicitud de contratación de ${lead.fullName}. Seguro Hogar Allianz: ${quote.homeType}, ${quote.quotedSquareMeters} m², cuota ${money(quote.monthlyPrice)}. DNI: ${personal.dni || "—"}. Domicilio: ${personal.address || "—"}. Email: ${lead.email}. Celular: ${lead.phone}.`,
+    }),
+  });
+  if (!response.ok) throw new Error(`Resend respondió ${response.status}: ${(await response.text()).slice(0, 500)}`);
+  const result = await response.json() as { id?: string };
+  return { sent: true, id: result.id };
 }

@@ -17,6 +17,7 @@ import {
   UserOutlined,
   SyncOutlined,
   BarChartOutlined,
+  LinkOutlined,
 } from "@ant-design/icons";
 import {
   App as AntApp,
@@ -55,7 +56,7 @@ GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 type UserRole = "admin" | "user";
 type UserStatus = "pending" | "active" | "disabled";
-type View = "users" | "roles" | "highlevel-contacts" | "leads" | "faqs" | "ai" | "config" | "analytics";
+type View = "users" | "roles" | "highlevel-contacts" | "leads" | "faqs" | "ai" | "config" | "analytics" | "landing-hogar";
 type LeadStatus = "new" | "pending_contact" | "contacted" | "follow_up" | "interested" | "quote_sent" | "won" | "not_interested" | "not_qualified" | "unresponsive";
 
 interface SessionUser {
@@ -134,6 +135,15 @@ interface AnalyticsConfiguration {
   propertyId: string;
 }
 
+interface LandingConfiguration {
+  _id: string;
+  slug: string;
+  name: string;
+  publicUrl: string;
+  sendQuoteEmail: boolean;
+  sendCommercialEmailOnContract: boolean;
+}
+
 type FaqImportEntry = Omit<FaqEntry, "_id" | "updatedAt">;
 
 interface Lead {
@@ -191,6 +201,7 @@ const viewPaths: Record<View, string> = {
   ai: "/ia",
   config: "/config",
   analytics: "/analytics",
+  "landing-hogar": "/landings/hogar",
 };
 
 function viewFromPath(pathname: string): View {
@@ -365,6 +376,8 @@ const permissionOptions = [
   { value: "ai.manage", label: "Configurar IA" },
   { value: "analytics.view", label: "Ver Analytics" },
   { value: "analytics.manage", label: "Configurar Analytics" },
+  { value: "landings.view", label: "Ver Landings" },
+  { value: "landings.manage", label: "Configurar Landings" },
 ];
 
 function RolesTable({ roles, loading, onReload }: { roles: AccessRole[]; loading: boolean; onReload: () => Promise<void> }) {
@@ -880,6 +893,54 @@ function EmailSettingsTab({ canManage }: { canManage: boolean }) {
   </Space>;
 }
 
+function HomeLandingPanel({ canManage }: { canManage: boolean }) {
+  const { message } = AntApp.useApp();
+  const [landing, setLanding] = useState<LandingConfiguration | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<keyof Pick<LandingConfiguration, "sendQuoteEmail" | "sendCommercialEmailOnContract"> | null>(null);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await requestJson<{ landings: LandingConfiguration[] }>("/admin/landings");
+      setLanding(data.landings.find((item) => item.slug === "hogar") ?? null);
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo cargar la landing."); }
+    finally { setLoading(false); }
+  }, [message]);
+  useEffect(() => { void load(); }, [load]);
+  const update = async (field: "sendQuoteEmail" | "sendCommercialEmailOnContract", checked: boolean) => {
+    if (!landing) return;
+    setSaving(field);
+    try {
+      const data = await requestJson<{ landing: LandingConfiguration }>(`/admin/landings/${landing.slug}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          sendQuoteEmail: field === "sendQuoteEmail" ? checked : landing.sendQuoteEmail,
+          sendCommercialEmailOnContract: field === "sendCommercialEmailOnContract" ? checked : landing.sendCommercialEmailOnContract,
+        }),
+      });
+      setLanding(data.landing);
+      message.success("Configuración de la landing guardada");
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo guardar la configuración."); }
+    finally { setSaving(null); }
+  };
+  if (loading) return <Spin />;
+  if (!landing) return <Empty description="No se encontró la landing de Hogar" />;
+  return <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Flex justify="space-between" align="center" wrap="wrap" gap={12}>
+      <div><Typography.Title level={4} style={{ margin: 0 }}>{landing.name}</Typography.Title><Typography.Text type="secondary">Controles de automatización para la landing de cotización de Hogar.</Typography.Text></div>
+      <Button icon={<LinkOutlined />} href={landing.publicUrl} target="_blank" rel="noreferrer">Ver landing</Button>
+    </Flex>
+    <Descriptions bordered column={1} size="middle">
+      <Descriptions.Item label="Enviar email al usuario luego de cotizar">
+        <Space><Switch checked={landing.sendQuoteEmail} disabled={!canManage} loading={saving === "sendQuoteEmail"} onChange={(checked) => void update("sendQuoteEmail", checked)} checkedChildren="Activo" unCheckedChildren="Inactivo" /><Typography.Text type="secondary">Envía la cotización al email ingresado al finalizar la primera etapa.</Typography.Text></Space>
+      </Descriptions.Item>
+      <Descriptions.Item label="Enviar email a Comercial al contratar">
+        <Space><Switch checked={landing.sendCommercialEmailOnContract} disabled={!canManage} loading={saving === "sendCommercialEmailOnContract"} onChange={(checked) => void update("sendCommercialEmailOnContract", checked)} checkedChildren="Activo" unCheckedChildren="Inactivo" /><Typography.Text type="secondary">Notifica al email comercial configurado cuando se completan los datos de contratación.</Typography.Text></Space>
+      </Descriptions.Item>
+    </Descriptions>
+  </Space>;
+}
+
 function ConfigPanel({ canManage }: { canManage: boolean }) {
   const { message } = AntApp.useApp();
   const [entries, setEntries] = useState<ConfigEntry[]>([]);
@@ -1013,9 +1074,9 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   }, []);
 
   useEffect(() => {
-    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "ai" && can("ai.view")) || (view === "config" && can("config.view")) || (view === "analytics" && can("analytics.view")) || (view === "highlevel-contacts" && can("highlevel.view") && can("highlevel.contacts.view"));
+    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "ai" && can("ai.view")) || (view === "config" && can("config.view")) || (view === "analytics" && can("analytics.view")) || (view === "landing-hogar" && can("landings.view")) || (view === "highlevel-contacts" && can("highlevel.view") && can("highlevel.contacts.view"));
     if (allowed) return;
-    const fallback: View | undefined = can("leads.view") ? "leads" : can("faqs.view") ? "faqs" : can("ai.view") ? "ai" : can("analytics.view") ? "analytics" : can("config.view") ? "config" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.view") && can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
+    const fallback: View | undefined = can("leads.view") ? "leads" : can("faqs.view") ? "faqs" : can("ai.view") ? "ai" : can("analytics.view") ? "analytics" : can("landings.view") ? "landing-hogar" : can("config.view") ? "config" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.view") && can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
     if (fallback) navigate(fallback);
   }, [can, navigate, view]);
 
@@ -1043,6 +1104,11 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
     [can],
   );
 
+  const landingsMenu = useMemo<MenuProps["items"]>(
+    () => can("landings.view") ? [{ key: "landing-hogar", label: "Hogar", icon: <SafetyCertificateOutlined /> }] : [],
+    [can],
+  );
+
   const logout = async () => {
     await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
     window.location.assign("/");
@@ -1058,6 +1124,9 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
             {can("faqs.view") && <Button type="text" className="header-menu-button" icon={<SafetyCertificateOutlined />} onClick={() => navigate("faqs")}>FAQs</Button>}
             {can("ai.view") && <Button type="text" className="header-menu-button" icon={<SafetyCertificateOutlined />} onClick={() => navigate("ai")}>IA</Button>}
             {can("analytics.view") && <Button type="text" className="header-menu-button" icon={<BarChartOutlined />} onClick={() => navigate("analytics")}>Analytics</Button>}
+            {can("landings.view") && <Dropdown menu={{ items: landingsMenu, onClick: ({ key }) => navigate(key as View) }} trigger={["click"]}>
+              <Button type="text" className="header-menu-button" icon={<LinkOutlined />}>Landings <DownOutlined /></Button>
+            </Dropdown>}
             {(can("users.view") || can("roles.manage")) &&
             <Dropdown
               menu={{ items: userMenu, onClick: ({ key }) => navigate(key as View) }}
@@ -1091,7 +1160,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <Flex justify="space-between" align="center" gap={16} wrap="wrap" className="page-heading">
           <div>
             <Typography.Title level={2}>
-              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : view === "ai" ? "Inteligencia artificial" : view === "analytics" ? "Analytics" : view === "config" ? "Configuración" : "Contactos"}
+              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : view === "ai" ? "Inteligencia artificial" : view === "analytics" ? "Analytics" : view === "landing-hogar" ? "Landing · Hogar" : view === "config" ? "Configuración" : "Contactos"}
             </Typography.Title>
             <Typography.Text type="secondary">
               {view === "users"
@@ -1102,7 +1171,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
                     ? "Solicitudes recibidas desde los cotizadores y su estado de sincronización."
                     : view === "faqs"
                       ? "Base de preguntas y respuestas organizada por aseguradora y tipo de seguro."
-                    : view === "ai" ? "Asistentes y bases de conocimiento por aseguradora y tipo de seguro." : view === "analytics" ? "Métricas y estado de conexión de Google Analytics." : view === "config" ? "Datos reutilizables por las landings y los asistentes." : "Copia local de los contactos de la subcuenta de Seguro a Tiempo. Usá Sincronizar para actualizarla."}
+                    : view === "ai" ? "Asistentes y bases de conocimiento por aseguradora y tipo de seguro." : view === "analytics" ? "Métricas y estado de conexión de Google Analytics." : view === "landing-hogar" ? "Controles de automatización y envíos de la landing de cotización de Hogar." : view === "config" ? "Datos reutilizables por las landings y los asistentes." : "Copia local de los contactos de la subcuenta de Seguro a Tiempo. Usá Sincronizar para actualizarla."}
             </Typography.Text>
           </div>
           {view === "users" && (
@@ -1127,6 +1196,8 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
             can("config.view") ? <ConfigPanel canManage={can("config.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : view === "analytics" ? (
             can("analytics.view") ? <AnalyticsDashboard /> : <Result status="403" title="Sin acceso" />
+          ) : view === "landing-hogar" ? (
+            can("landings.view") ? <HomeLandingPanel canManage={can("landings.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : (
             can("highlevel.view") && can("highlevel.contacts.view") ? <HighLevelContacts /> : <Result status="403" title="Sin acceso" />
           )}
