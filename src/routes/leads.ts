@@ -20,7 +20,9 @@ const homeLeadSchema = z.object({
   submissionId: z.string().uuid().optional(),
   name: z.string().trim().min(3).max(120),
   email: z.string().trim().email().max(254),
-  phone: argentinaPhone,
+  // El teléfono se solicita recién en la etapa de contratación. La cotización
+  // inicial debe poder crearse solamente con nombre y correo electrónico.
+  phone: argentinaPhone.optional(),
   postalCode: z.string().regex(/^\d{4}$/),
   homeType: z.enum(["Casa", "Departamento", "PH", "Barrio privado"]),
   floor: z.string().trim().min(1).max(40),
@@ -72,6 +74,7 @@ leadsRouter.post("/home", async (request, response) => {
   }
 
   const [firstName = input.name, ...lastNameParts] = input.name.trim().split(/\s+/);
+  const phone = input.phone ?? "";
 
   const lead = await Lead.create({
     submissionId,
@@ -80,7 +83,7 @@ leadsRouter.post("/home", async (request, response) => {
     insurer: "allianz",
     fullName: input.name,
     email: input.email,
-    phone: input.phone,
+    phone,
     personal: {
       firstName,
       lastName: lastNameParts.join(" "),
@@ -91,7 +94,7 @@ leadsRouter.post("/home", async (request, response) => {
       apartment: "",
       postalCode: input.postalCode,
       email: input.email,
-      phone: input.phone,
+      phone,
     },
     quote: {
       postalCode: input.postalCode,
