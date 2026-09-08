@@ -8,6 +8,7 @@ import { ensureHomeLandingSettings } from "../services/landing-settings.js";
 const settingsInput = z.object({
   sendQuoteEmail: z.boolean(),
   sendCommercialEmailOnContract: z.boolean(),
+  contractRecipientEmail: z.string().trim().max(254).refine((value) => !value || z.string().email().safeParse(value).success, "Ingresá un email válido"),
 });
 
 export const adminLandingsRouter = Router();

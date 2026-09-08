@@ -142,6 +142,7 @@ interface LandingConfiguration {
   publicUrl: string;
   sendQuoteEmail: boolean;
   sendCommercialEmailOnContract: boolean;
+  contractRecipientEmail: string;
 }
 
 type FaqImportEntry = Omit<FaqEntry, "_id" | "updatedAt">;
@@ -896,29 +897,34 @@ function EmailSettingsTab({ canManage }: { canManage: boolean }) {
 function HomeLandingPanel({ canManage }: { canManage: boolean }) {
   const { message } = AntApp.useApp();
   const [landing, setLanding] = useState<LandingConfiguration | null>(null);
+  const [contractRecipientEmail, setContractRecipientEmail] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<keyof Pick<LandingConfiguration, "sendQuoteEmail" | "sendCommercialEmailOnContract"> | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await requestJson<{ landings: LandingConfiguration[] }>("/admin/landings");
-      setLanding(data.landings.find((item) => item.slug === "hogar") ?? null);
+      const home = data.landings.find((item) => item.slug === "hogar") ?? null;
+      setLanding(home);
+      setContractRecipientEmail(home?.contractRecipientEmail ?? "");
     } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo cargar la landing."); }
     finally { setLoading(false); }
   }, [message]);
   useEffect(() => { void load(); }, [load]);
-  const update = async (field: "sendQuoteEmail" | "sendCommercialEmailOnContract", checked: boolean) => {
+  const update = async (changes: Partial<Pick<LandingConfiguration, "sendQuoteEmail" | "sendCommercialEmailOnContract" | "contractRecipientEmail">>, savingField: "sendQuoteEmail" | "sendCommercialEmailOnContract" | "recipient") => {
     if (!landing) return;
-    setSaving(field);
+    setSaving(savingField === "recipient" ? null : savingField);
     try {
       const data = await requestJson<{ landing: LandingConfiguration }>(`/admin/landings/${landing.slug}`, {
         method: "PATCH",
         body: JSON.stringify({
-          sendQuoteEmail: field === "sendQuoteEmail" ? checked : landing.sendQuoteEmail,
-          sendCommercialEmailOnContract: field === "sendCommercialEmailOnContract" ? checked : landing.sendCommercialEmailOnContract,
+          sendQuoteEmail: changes.sendQuoteEmail ?? landing.sendQuoteEmail,
+          sendCommercialEmailOnContract: changes.sendCommercialEmailOnContract ?? landing.sendCommercialEmailOnContract,
+          contractRecipientEmail: changes.contractRecipientEmail ?? contractRecipientEmail,
         }),
       });
       setLanding(data.landing);
+      setContractRecipientEmail(data.landing.contractRecipientEmail ?? "");
       message.success("Configuración de la landing guardada");
     } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo guardar la configuración."); }
     finally { setSaving(null); }
@@ -932,10 +938,14 @@ function HomeLandingPanel({ canManage }: { canManage: boolean }) {
     </Flex>
     <Descriptions bordered column={1} size="middle">
       <Descriptions.Item label="Enviar email al usuario luego de cotizar">
-        <Space><Switch checked={landing.sendQuoteEmail} disabled={!canManage} loading={saving === "sendQuoteEmail"} onChange={(checked) => void update("sendQuoteEmail", checked)} checkedChildren="Activo" unCheckedChildren="Inactivo" /><Typography.Text type="secondary">Envía la cotización al email ingresado al finalizar la primera etapa.</Typography.Text></Space>
+        <Space><Switch checked={landing.sendQuoteEmail} disabled={!canManage} loading={saving === "sendQuoteEmail"} onChange={(checked) => void update({ sendQuoteEmail: checked }, "sendQuoteEmail")} checkedChildren="Activo" unCheckedChildren="Inactivo" /><Typography.Text type="secondary">Envía la cotización al email ingresado al finalizar la primera etapa.</Typography.Text></Space>
       </Descriptions.Item>
-      <Descriptions.Item label="Enviar email a Comercial al contratar">
-        <Space><Switch checked={landing.sendCommercialEmailOnContract} disabled={!canManage} loading={saving === "sendCommercialEmailOnContract"} onChange={(checked) => void update("sendCommercialEmailOnContract", checked)} checkedChildren="Activo" unCheckedChildren="Inactivo" /><Typography.Text type="secondary">Notifica al email comercial configurado cuando se completan los datos de contratación.</Typography.Text></Space>
+      <Descriptions.Item label="Enviar email al contratar">
+        <Space direction="vertical" size={8} style={{ width: "100%" }}>
+          <Space><Switch checked={landing.sendCommercialEmailOnContract} disabled={!canManage} loading={saving === "sendCommercialEmailOnContract"} onChange={(checked) => void update({ sendCommercialEmailOnContract: checked }, "sendCommercialEmailOnContract")} checkedChildren="Activo" unCheckedChildren="Inactivo" /><Typography.Text type="secondary">Envía la solicitud al completar los datos de contratación.</Typography.Text></Space>
+          <Space.Compact style={{ width: "100%" }}><Input disabled={!canManage} value={contractRecipientEmail} type="email" placeholder="destinatario@ejemplo.com" onChange={(event) => setContractRecipientEmail(event.target.value)} onPressEnter={() => void update({ contractRecipientEmail }, "recipient")} /><Button disabled={!canManage} onClick={() => void update({ contractRecipientEmail }, "recipient")}>Guardar destinatario</Button></Space.Compact>
+          <Typography.Text type="secondary">Si queda vacío, se utiliza el email general configurado como <code>email-comercial</code> en Config.</Typography.Text>
+        </Space>
       </Descriptions.Item>
     </Descriptions>
   </Space>;

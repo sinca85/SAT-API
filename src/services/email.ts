@@ -75,8 +75,8 @@ export async function sendEmailTest(to: string) {
   return await response.json() as { id?: string };
 }
 
-export async function sendHomeContractNotificationEmail(lead: HomeContractLead) {
-  const to = await commercialRecipient();
+export async function sendHomeContractNotificationEmail(lead: HomeContractLead, configuredRecipient?: string) {
+  const to = configuredRecipient?.trim() || await commercialRecipient();
   if (!to) return { sent: false, reason: "commercial_email_not_configured" as const };
   const from = await sender();
   const personal = lead.personal ?? {};

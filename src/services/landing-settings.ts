@@ -8,6 +8,7 @@ const homeDefaults = {
   publicUrl: "https://cotizar.seguroatiempo.com/hogar",
   sendQuoteEmail: true,
   sendCommercialEmailOnContract: true,
+  contractRecipientEmail: "",
 };
 
 export async function ensureHomeLandingSettings() {

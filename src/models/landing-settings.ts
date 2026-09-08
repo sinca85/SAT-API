@@ -7,6 +7,7 @@ const landingSettingsSchema = new Schema(
     publicUrl: { type: String, required: true, trim: true, maxlength: 500 },
     sendQuoteEmail: { type: Boolean, default: true, required: true },
     sendCommercialEmailOnContract: { type: Boolean, default: true, required: true },
+    contractRecipientEmail: { type: String, default: "", trim: true, lowercase: true, maxlength: 254 },
     updatedBy: { type: Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true },

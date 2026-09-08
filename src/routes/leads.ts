@@ -164,7 +164,7 @@ leadsRouter.patch("/home/:leadId/contract", async (request, response) => {
   const landingSettings = await getHomeLandingSettings();
   if (landingSettings.sendCommercialEmailOnContract) {
     try {
-      await sendHomeContractNotificationEmail(lead);
+      await sendHomeContractNotificationEmail(lead, landingSettings.contractRecipientEmail);
     } catch (error) {
       console.error("Could not send home contract notification email", error);
     }
