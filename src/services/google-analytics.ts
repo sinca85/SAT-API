@@ -66,7 +66,7 @@ async function runReport(propertyId: string, body: object): Promise<RunReportRes
 const numeric = (value?: string) => Number(value ?? 0);
 
 export async function getAnalyticsOverview(propertyId: string) {
-  const [totalsReport, sourcesReport] = await Promise.all([
+  const [totalsReport, sourcesReport, landingReport, eventsReport] = await Promise.all([
     runReport(propertyId, {
       dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
       metrics: [{ name: "activeUsers" }, { name: "sessions" }, { name: "screenPageViews" }],
@@ -78,13 +78,39 @@ export async function getAnalyticsOverview(propertyId: string) {
       orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
       limit: "8",
     }),
+    runReport(propertyId, {
+      dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
+      dimensions: [{ name: "pagePath" }],
+      metrics: [{ name: "activeUsers" }, { name: "screenPageViews" }],
+      dimensionFilter: { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: "/hogar" } } },
+      limit: "1",
+    }),
+    runReport(propertyId, {
+      dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
+      dimensions: [{ name: "eventName" }],
+      metrics: [{ name: "eventCount" }, { name: "totalUsers" }],
+      dimensionFilter: { orGroup: { expressions: [
+        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: "cotizador_continuar" } } },
+        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: "cotizador_ver_cotizacion" } } },
+        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: "cotizador_solicitud_contratacion" } } },
+      ] } },
+    }),
   ]);
   const totals = totalsReport.totals?.[0]?.metricValues ?? totalsReport.rows?.[0]?.metricValues ?? [];
+  const landing = landingReport.rows?.[0]?.metricValues ?? [];
+  const events = new Map((eventsReport.rows ?? []).map((row) => [row.dimensionValues?.[0]?.value, row.metricValues ?? []]));
+  const funnel = [
+    { key: "visit", label: "Visitas a /hogar", description: "Personas que ingresaron a la landing", users: numeric(landing[0]?.value), events: numeric(landing[1]?.value) },
+    { key: "home", label: "Paso 1 completado", description: "Datos del hogar validados", users: numeric(events.get("cotizador_continuar")?.[1]?.value), events: numeric(events.get("cotizador_continuar")?.[0]?.value) },
+    { key: "quote", label: "Cotización generada", description: "Nombre y email enviados", users: numeric(events.get("cotizador_ver_cotizacion")?.[1]?.value), events: numeric(events.get("cotizador_ver_cotizacion")?.[0]?.value) },
+    { key: "contract", label: "Solicitud de contratación", description: "Datos finales enviados correctamente", users: numeric(events.get("cotizador_solicitud_contratacion")?.[1]?.value), events: numeric(events.get("cotizador_solicitud_contratacion")?.[0]?.value) },
+  ];
   return {
     period: "Últimos 30 días",
     activeUsers: numeric(totals[0]?.value),
     sessions: numeric(totals[1]?.value),
     pageViews: numeric(totals[2]?.value),
+    funnel,
     channels: (sourcesReport.rows ?? []).map((row) => ({
       name: row.dimensionValues?.[0]?.value || "Sin clasificar",
       activeUsers: numeric(row.metricValues?.[0]?.value),
