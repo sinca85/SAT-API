@@ -20,6 +20,10 @@ const campaignInput = z.object({
   contractEvent: z.string().trim().regex(/^[a-zA-Z][a-zA-Z0-9_]*$/).max(80),
   active: z.boolean().default(true),
 });
+const dateQuery = z.object({
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
 
 async function settings() {
   return AnalyticsSettings.findOneAndUpdate(
@@ -80,6 +84,18 @@ adminAnalyticsRouter.get("/overview", requirePermission("analytics.view"), async
   const configuration = await settings();
   await ensureDefaultCampaign();
   const campaignId = typeof request.query.campaignId === "string" ? request.query.campaignId : "";
+  const dateRange = dateQuery.parse({
+    startDate: typeof request.query.startDate === "string" ? request.query.startDate : undefined,
+    endDate: typeof request.query.endDate === "string" ? request.query.endDate : undefined,
+  });
+  if (Boolean(dateRange.startDate) !== Boolean(dateRange.endDate)) {
+    response.status(400).json({ error: "Indicá ambas fechas para aplicar un rango personalizado." });
+    return;
+  }
+  if (dateRange.startDate && dateRange.endDate && dateRange.startDate > dateRange.endDate) {
+    response.status(400).json({ error: "La fecha desde no puede ser posterior a la fecha hasta." });
+    return;
+  }
   const campaign = (campaignId ? await AnalyticsCampaign.findById(campaignId) : null) ?? await AnalyticsCampaign.findOne({ active: true }).sort({ name: 1 });
   if (!campaign) { response.json({ status: "needs_campaign", settings: configuration, message: "Creá una campaña para ver su embudo." }); return; }
   if (!configuration.propertyId) {
@@ -91,7 +107,7 @@ adminAnalyticsRouter.get("/overview", requirePermission("analytics.view"), async
     return;
   }
   try {
-    response.json({ status: "connected", settings: configuration, campaign, overview: await getAnalyticsOverview(configuration.propertyId, campaign) });
+    response.json({ status: "connected", settings: configuration, campaign, overview: await getAnalyticsOverview(configuration.propertyId, campaign, dateRange) });
   } catch (error) {
     response.json({ status: "connection_error", settings: configuration, message: error instanceof Error ? error.message : "No se pudo consultar Google Analytics." });
   }

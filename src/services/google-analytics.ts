@@ -73,28 +73,39 @@ export interface AnalyticsCampaignDefinition {
   contractEvent: string;
 }
 
-export async function getAnalyticsOverview(propertyId: string, campaign: AnalyticsCampaignDefinition) {
+export interface AnalyticsDateRange {
+  startDate?: string;
+  endDate?: string;
+}
+
+function formatPeriodDate(value: string) {
+  return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
+}
+
+export async function getAnalyticsOverview(propertyId: string, campaign: AnalyticsCampaignDefinition, range: AnalyticsDateRange = {}) {
+  const dateRanges = [{ startDate: range.startDate ?? "30daysAgo", endDate: range.endDate ?? "today" }];
+  const period = range.startDate && range.endDate ? `${formatPeriodDate(range.startDate)} al ${formatPeriodDate(range.endDate)}` : "Últimos 30 días";
   const [totalsReport, sourcesReport, landingReport, eventsReport] = await Promise.all([
     runReport(propertyId, {
-      dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
+      dateRanges,
       metrics: [{ name: "activeUsers" }, { name: "sessions" }, { name: "screenPageViews" }],
     }),
     runReport(propertyId, {
-      dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
+      dateRanges,
       dimensions: [{ name: "sessionDefaultChannelGroup" }],
       metrics: [{ name: "activeUsers" }, { name: "sessions" }],
       orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
       limit: "8",
     }),
     runReport(propertyId, {
-      dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
+      dateRanges,
       dimensions: [{ name: "pagePath" }],
       metrics: [{ name: "activeUsers" }, { name: "screenPageViews" }],
       dimensionFilter: { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: campaign.landingPath } } },
       limit: "1",
     }),
     runReport(propertyId, {
-      dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
+      dateRanges,
       dimensions: [{ name: "eventName" }],
       metrics: [{ name: "eventCount" }, { name: "totalUsers" }],
       dimensionFilter: { orGroup: { expressions: [
@@ -114,7 +125,7 @@ export async function getAnalyticsOverview(propertyId: string, campaign: Analyti
     { key: "contract", label: "Solicitud de contratación", description: "Datos finales enviados correctamente", users: numeric(events.get(campaign.contractEvent)?.[1]?.value), events: numeric(events.get(campaign.contractEvent)?.[0]?.value) },
   ];
   return {
-    period: "Últimos 30 días",
+    period,
     activeUsers: numeric(totals[0]?.value),
     sessions: numeric(totals[1]?.value),
     pageViews: numeric(totals[2]?.value),
