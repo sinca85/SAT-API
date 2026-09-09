@@ -65,7 +65,15 @@ async function runReport(propertyId: string, body: object): Promise<RunReportRes
 
 const numeric = (value?: string) => Number(value ?? 0);
 
-export async function getAnalyticsOverview(propertyId: string) {
+export interface AnalyticsCampaignDefinition {
+  name: string;
+  landingPath: string;
+  stepOneEvent: string;
+  quoteEvent: string;
+  contractEvent: string;
+}
+
+export async function getAnalyticsOverview(propertyId: string, campaign: AnalyticsCampaignDefinition) {
   const [totalsReport, sourcesReport, landingReport, eventsReport] = await Promise.all([
     runReport(propertyId, {
       dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
@@ -82,7 +90,7 @@ export async function getAnalyticsOverview(propertyId: string) {
       dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
       dimensions: [{ name: "pagePath" }],
       metrics: [{ name: "activeUsers" }, { name: "screenPageViews" }],
-      dimensionFilter: { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: "/hogar" } } },
+      dimensionFilter: { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: campaign.landingPath } } },
       limit: "1",
     }),
     runReport(propertyId, {
@@ -90,9 +98,9 @@ export async function getAnalyticsOverview(propertyId: string) {
       dimensions: [{ name: "eventName" }],
       metrics: [{ name: "eventCount" }, { name: "totalUsers" }],
       dimensionFilter: { orGroup: { expressions: [
-        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: "cotizador_continuar" } } },
-        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: "cotizador_ver_cotizacion" } } },
-        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: "cotizador_solicitud_contratacion" } } },
+        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.stepOneEvent } } },
+        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.quoteEvent } } },
+        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.contractEvent } } },
       ] } },
     }),
   ]);
@@ -100,10 +108,10 @@ export async function getAnalyticsOverview(propertyId: string) {
   const landing = landingReport.rows?.[0]?.metricValues ?? [];
   const events = new Map((eventsReport.rows ?? []).map((row) => [row.dimensionValues?.[0]?.value, row.metricValues ?? []]));
   const funnel = [
-    { key: "visit", label: "Visitas a /hogar", description: "Personas que ingresaron a la landing", users: numeric(landing[0]?.value), events: numeric(landing[1]?.value) },
-    { key: "home", label: "Paso 1 completado", description: "Datos del hogar validados", users: numeric(events.get("cotizador_continuar")?.[1]?.value), events: numeric(events.get("cotizador_continuar")?.[0]?.value) },
-    { key: "quote", label: "Cotización generada", description: "Nombre y email enviados", users: numeric(events.get("cotizador_ver_cotizacion")?.[1]?.value), events: numeric(events.get("cotizador_ver_cotizacion")?.[0]?.value) },
-    { key: "contract", label: "Solicitud de contratación", description: "Datos finales enviados correctamente", users: numeric(events.get("cotizador_solicitud_contratacion")?.[1]?.value), events: numeric(events.get("cotizador_solicitud_contratacion")?.[0]?.value) },
+    { key: "visit", label: `Visitas a ${campaign.landingPath}`, description: "Personas que ingresaron a la landing", users: numeric(landing[0]?.value), events: numeric(landing[1]?.value) },
+    { key: "home", label: "Paso 1 completado", description: "Datos iniciales validados", users: numeric(events.get(campaign.stepOneEvent)?.[1]?.value), events: numeric(events.get(campaign.stepOneEvent)?.[0]?.value) },
+    { key: "quote", label: "Cotización generada", description: "Primera etapa enviada", users: numeric(events.get(campaign.quoteEvent)?.[1]?.value), events: numeric(events.get(campaign.quoteEvent)?.[0]?.value) },
+    { key: "contract", label: "Solicitud de contratación", description: "Datos finales enviados correctamente", users: numeric(events.get(campaign.contractEvent)?.[1]?.value), events: numeric(events.get(campaign.contractEvent)?.[0]?.value) },
   ];
   return {
     period: "Últimos 30 días",

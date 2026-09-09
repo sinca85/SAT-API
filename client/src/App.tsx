@@ -135,6 +135,17 @@ interface AnalyticsConfiguration {
   propertyId: string;
 }
 
+interface AnalyticsCampaign {
+  _id: string;
+  name: string;
+  slug: string;
+  landingPath: string;
+  stepOneEvent: string;
+  quoteEvent: string;
+  contractEvent: string;
+  active: boolean;
+}
+
 interface LandingConfiguration {
   _id: string;
   slug: string;
@@ -976,12 +987,19 @@ function ConfigPanel({ canManage }: { canManage: boolean }) {
   return <Tabs items={[{ key: "general", label: "Datos generales", children: generalContent }, { key: "analytics", label: "Google Analytics", children: <AnalyticsSettingsTab canManage={canManage} /> }, { key: "email", label: "Email", children: <EmailSettingsTab canManage={canManage} /> }]} />;
 }
 
-function AnalyticsDashboard() {
+function AnalyticsDashboard({ canManage }: { canManage: boolean }) {
   const { message } = AntApp.useApp();
-  const [data, setData] = useState<{ status: string; message?: string; settings: AnalyticsConfiguration; overview?: { period: string; activeUsers: number; sessions: number; pageViews: number; channels: Array<{ name: string; activeUsers: number; sessions: number }>; funnel: Array<{ key: string; label: string; description: string; users: number; events: number }> } } | null>(null);
+  const [data, setData] = useState<{ status: string; message?: string; settings: AnalyticsConfiguration; campaign?: AnalyticsCampaign; overview?: { period: string; activeUsers: number; sessions: number; pageViews: number; channels: Array<{ name: string; activeUsers: number; sessions: number }>; funnel: Array<{ key: string; label: string; description: string; users: number; events: number }> } } | null>(null);
   const [loading, setLoading] = useState(true);
-  const load = useCallback(async () => { setLoading(true); try { setData(await requestJson("/admin/analytics/overview")); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar las métricas"); } finally { setLoading(false); } }, [message]);
+  const [campaigns, setCampaigns] = useState<AnalyticsCampaign[]>([]);
+  const [campaignId, setCampaignId] = useState("");
+  const [editingCampaign, setEditingCampaign] = useState<Partial<AnalyticsCampaign> | null>(null);
+  const [savingCampaign, setSavingCampaign] = useState(false);
+  const loadCampaigns = useCallback(async () => { try { const response = await requestJson<{ campaigns: AnalyticsCampaign[] }>("/admin/analytics/campaigns"); setCampaigns(response.campaigns); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar las campañas"); } }, [message]);
+  const load = useCallback(async () => { setLoading(true); try { setData(await requestJson(`/admin/analytics/overview${campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : ""}`)); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar las métricas"); } finally { setLoading(false); } }, [message, campaignId]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void loadCampaigns(); }, [loadCampaigns]);
+  const saveCampaign = async () => { if (!editingCampaign?.name || !editingCampaign.slug || !editingCampaign.landingPath || !editingCampaign.stepOneEvent || !editingCampaign.quoteEvent || !editingCampaign.contractEvent) { message.error("Completá los datos de la campaña y sus eventos."); return; } setSavingCampaign(true); try { const payload = { ...editingCampaign, active: editingCampaign.active !== false }; const result = editingCampaign._id ? await requestJson<{ campaign: AnalyticsCampaign }>(`/admin/analytics/campaigns/${editingCampaign._id}`, { method: "PATCH", body: JSON.stringify(payload) }) : await requestJson<{ campaign: AnalyticsCampaign }>("/admin/analytics/campaigns", { method: "POST", body: JSON.stringify(payload) }); setEditingCampaign(null); setCampaignId(result.campaign._id); await loadCampaigns(); message.success("Campaña analítica guardada"); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo guardar la campaña"); } finally { setSavingCampaign(false); } };
   if (loading) return <Spin />;
   if (data?.status === "connected" && data.overview) {
     const channelColumns: TableColumnsType<{ name: string; activeUsers: number; sessions: number }> = [
@@ -990,10 +1008,11 @@ function AnalyticsDashboard() {
       { title: "Sesiones", dataIndex: "sessions", align: "right" },
     ];
     return <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Flex justify="space-between" align="center" wrap="wrap" gap={12}><Typography.Text type="secondary">{data.overview.period}</Typography.Text><Button onClick={() => void load()}>Actualizar métricas</Button></Flex>
+      <Flex justify="space-between" align="center" wrap="wrap" gap={12}><Space wrap><Typography.Text type="secondary">{data.overview.period}</Typography.Text><Select style={{ minWidth: 245 }} value={campaignId || data.campaign?._id} options={campaigns.map(campaign => ({ value: campaign._id, label: campaign.name }))} onChange={value => setCampaignId(value)} />{canManage && <Button icon={<SettingOutlined />} onClick={() => setEditingCampaign(data.campaign ? { ...data.campaign } : null)}>Editar campaña</Button>}{canManage && <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditingCampaign({ name: "", slug: "", landingPath: "/", stepOneEvent: "", quoteEvent: "", contractEvent: "", active: true })}>Nueva campaña</Button>}</Space><Button onClick={() => void load()}>Actualizar métricas</Button></Flex>
       <Flex gap={16} wrap="wrap">{[["Usuarios activos", data.overview.activeUsers], ["Sesiones", data.overview.sessions], ["Vistas de página", data.overview.pageViews]].map(([title, value]) => <div key={title as string} style={{ minWidth: 205, flex: "1 1 205px", padding: "22px 24px", border: "1px solid #e4ebf4", borderRadius: 14, background: "#fff" }}><Statistic title={title as string} value={value as number} /></div>)}</Flex>
-      <section className="config-section"><Typography.Title level={4}>Embudo · Cotizador Hogar</Typography.Title><Typography.Text type="secondary">Últimos 30 días. Los eventos se registran únicamente después de validar y enviar cada etapa.</Typography.Text><Flex gap={12} wrap="wrap" style={{ marginTop: 16 }}>{data.overview.funnel.map((step, index) => { const initialUsers = data.overview!.funnel[0]?.users || 0; const previousUsers = data.overview!.funnel[index - 1]?.users || initialUsers; const conversion = index === 0 ? 100 : previousUsers ? Math.round((step.users / previousUsers) * 100) : 0; return <div key={step.key} style={{ minWidth: 205, flex: "1 1 205px", padding: "20px 22px", border: "1px solid #e4ebf4", borderRadius: 14, background: "#fff" }}><Typography.Text type="secondary">{index + 1}. {step.label}</Typography.Text><Statistic value={step.users} suffix="usuarios" valueStyle={{ fontSize: 30, color: "#173b67" }} /><Typography.Text type="secondary" style={{ display: "block", minHeight: 38 }}>{step.description}</Typography.Text>{index > 0 && <Tag color={conversion ? "blue" : "default"} style={{ marginTop: 10 }}>{conversion}% vs. paso anterior</Tag>}</div>; })}</Flex></section>
+      <section className="config-section"><Typography.Title level={4}>Embudo · {data.campaign?.name}</Typography.Title><Typography.Text type="secondary">Últimos 30 días. Los eventos se registran únicamente después de validar y enviar cada etapa.</Typography.Text><Flex gap={12} wrap="wrap" style={{ marginTop: 16 }}>{data.overview.funnel.map((step, index) => { const initialUsers = data.overview!.funnel[0]?.users || 0; const previousUsers = data.overview!.funnel[index - 1]?.users || initialUsers; const conversion = index === 0 ? 100 : previousUsers ? Math.round((step.users / previousUsers) * 100) : 0; return <div key={step.key} style={{ minWidth: 205, flex: "1 1 205px", padding: "20px 22px", border: "1px solid #e4ebf4", borderRadius: 14, background: "#fff" }}><Typography.Text type="secondary">{index + 1}. {step.label}</Typography.Text><Statistic value={step.users} suffix="usuarios" valueStyle={{ fontSize: 30, color: "#173b67" }} /><Typography.Text type="secondary" style={{ display: "block", minHeight: 38 }}>{step.description}</Typography.Text>{index > 0 && <Tag color={conversion ? "blue" : "default"} style={{ marginTop: 10 }}>{conversion}% vs. paso anterior</Tag>}</div>; })}</Flex></section>
       <section className="config-section"><Typography.Title level={4}>Canales de adquisición</Typography.Title><Table rowKey="name" size="small" columns={channelColumns} dataSource={data.overview.channels} pagination={false} /></section>
+      <Modal open={Boolean(editingCampaign)} title={editingCampaign?._id ? "Editar campaña analítica" : "Nueva campaña analítica"} okText="Guardar" confirmLoading={savingCampaign} onCancel={() => setEditingCampaign(null)} onOk={() => void saveCampaign()}>{editingCampaign && <Space direction="vertical" style={{ width: "100%" }}><Input value={editingCampaign.name} placeholder="Nombre visible" onChange={event => setEditingCampaign({ ...editingCampaign, name: event.target.value })} /><Input value={editingCampaign.slug} placeholder="Slug (ej. allianz-hogar)" onChange={event => setEditingCampaign({ ...editingCampaign, slug: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-") })} /><Input value={editingCampaign.landingPath} placeholder="Ruta de la landing (ej. /hogar)" onChange={event => setEditingCampaign({ ...editingCampaign, landingPath: event.target.value })} /><Divider>Eventos de GA4</Divider><Input value={editingCampaign.stepOneEvent} placeholder="Evento de paso 1" onChange={event => setEditingCampaign({ ...editingCampaign, stepOneEvent: event.target.value })} /><Input value={editingCampaign.quoteEvent} placeholder="Evento de cotización" onChange={event => setEditingCampaign({ ...editingCampaign, quoteEvent: event.target.value })} /><Input value={editingCampaign.contractEvent} placeholder="Evento de contratación" onChange={event => setEditingCampaign({ ...editingCampaign, contractEvent: event.target.value })} /><Switch checked={editingCampaign.active !== false} onChange={active => setEditingCampaign({ ...editingCampaign, active })} checkedChildren="Activa" unCheckedChildren="Inactiva" /></Space>}</Modal>
     </Space>;
   }
   return <Space direction="vertical" size="large" style={{ width: "100%" }}>
@@ -1206,7 +1225,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
           ) : view === "config" ? (
             can("config.view") ? <ConfigPanel canManage={can("config.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : view === "analytics" ? (
-            can("analytics.view") ? <AnalyticsDashboard /> : <Result status="403" title="Sin acceso" />
+            can("analytics.view") ? <AnalyticsDashboard canManage={can("analytics.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : view === "landing-hogar" ? (
             can("landings.view") ? <HomeLandingPanel canManage={can("landings.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : (
