@@ -15,6 +15,7 @@ const argentinaPhone = z.string().trim().min(8).max(24).refine(
   (value) => /^\+?[\d\s()-]+$/.test(value) && value.replace(/\D/g, "").length >= 8 && value.replace(/\D/g, "").length <= 15,
   "Ingresá un teléfono válido de entre 8 y 15 números",
 );
+const homeType = z.enum(["Casa", "Departamento", "PH", "Barrio privado"]);
 
 const homeLeadSchema = z.object({
   submissionId: z.string().uuid().optional(),
@@ -24,7 +25,7 @@ const homeLeadSchema = z.object({
   // inicial debe poder crearse solamente con nombre y correo electrónico.
   phone: argentinaPhone.optional(),
   postalCode: z.string().regex(/^\d{4}$/),
-  homeType: z.enum(["Casa", "Departamento", "PH", "Barrio privado"]),
+  homeType,
   floor: z.string().trim().min(1).max(40),
   squareMeters: z.number().int().positive(),
   origin: z.object({
@@ -56,16 +57,18 @@ export const leadsRouter = Router();
 
 leadsRouter.get("/home/quote", async (request, response) => {
   const squareMeters = z.coerce.number().int().positive().parse(request.query.squareMeters);
-  response.json({ quote: await getHomeQuote(squareMeters), options: await getHomeQuoteOptions() });
+  const selectedHomeType = homeType.parse(request.query.homeType);
+  response.json({ quote: await getHomeQuote(squareMeters, selectedHomeType), options: await getHomeQuoteOptions(selectedHomeType) });
 });
 
-leadsRouter.get("/home/options", async (_request, response) => {
-  response.json({ options: await getHomeQuoteOptions() });
+leadsRouter.get("/home/options", async (request, response) => {
+  const selectedHomeType = homeType.parse(request.query.homeType);
+  response.json({ options: await getHomeQuoteOptions(selectedHomeType) });
 });
 
 leadsRouter.post("/home", async (request, response) => {
   const input = homeLeadSchema.parse(request.body);
-  const quote = await getHomeQuote(input.squareMeters);
+  const quote = await getHomeQuote(input.squareMeters, input.homeType);
   const submissionId = input.submissionId ?? randomUUID();
   const existing = await Lead.findOne({ submissionId });
   if (existing) {

@@ -21,7 +21,11 @@ interface HomeQuoteGrid {
   rows: Map<string, string[]>;
 }
 
-let cache: { expiresAt: number; grid: HomeQuoteGrid } | undefined;
+export type HomeType = "Casa" | "Departamento" | "PH" | "Barrio privado";
+type QuoteCategory = "departamento" | "casa-ph-country";
+type HomeQuoteCatalog = Map<QuoteCategory, HomeQuoteGrid>;
+
+let cache: { expiresAt: number; catalog: HomeQuoteCatalog } | undefined;
 
 function normalizeLabel(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("es");
@@ -33,28 +37,55 @@ function parseMoney(value: string) {
   return parsed;
 }
 
-function parseGrid(tsv: string): HomeQuoteGrid {
-  const lines = tsv.split(/\r?\n/).map((line) => line.split("\t"));
-  const headerIndex = lines.findIndex(([label]) => normalizeLabel(label ?? "").startsWith("coberturas / metros cuadrados"));
-  if (headerIndex < 0) throw new Error("Home quote spreadsheet header was not found");
-  const header = lines[headerIndex];
-  if (!header) throw new Error("Home quote spreadsheet header was not found");
-  const squareMeters = header.slice(1).filter(Boolean).map((value) => Number(value.trim()));
-  if (!squareMeters.length || squareMeters.some((value) => !Number.isFinite(value))) throw new Error("Home quote spreadsheet has invalid square meters");
-  const rows = new Map<string, string[]>();
-  for (const row of lines.slice(headerIndex + 1)) {
-    const label = normalizeLabel(row[0] ?? "");
-    if (label) rows.set(label, row.slice(1, squareMeters.length + 1));
-  }
-  return { squareMeters, rows };
+function categoryForHomeType(homeType: HomeType): QuoteCategory {
+  return homeType === "Departamento" ? "departamento" : "casa-ph-country";
 }
 
-async function getGrid() {
-  if (cache && cache.expiresAt > Date.now()) return cache.grid;
+function parseCatalog(tsv: string): HomeQuoteCatalog {
+  const lines = tsv.split(/\r?\n/).map((line) => line.split("\t"));
+  const catalog: HomeQuoteCatalog = new Map();
+  let activeCategory: QuoteCategory | undefined;
+  let activeGrid: HomeQuoteGrid | undefined;
+
+  for (const row of lines) {
+    const label = normalizeLabel(row[0] ?? "");
+    if (label === "departamento") {
+      activeCategory = "departamento";
+      activeGrid = undefined;
+      continue;
+    }
+    if (label.includes("casa") && label.includes("ph") && label.includes("country")) {
+      activeCategory = "casa-ph-country";
+      activeGrid = undefined;
+      continue;
+    }
+    if (label.startsWith("coberturas / metros cuadrados")) {
+      if (!activeCategory) continue;
+      const squareMeters = row.slice(1).filter(Boolean).map((value) => Number(value.trim()));
+      if (!squareMeters.length || squareMeters.some((value) => !Number.isFinite(value))) throw new Error("Home quote spreadsheet has invalid square meters");
+      activeGrid = { squareMeters, rows: new Map() };
+      catalog.set(activeCategory, activeGrid);
+      continue;
+    }
+    if (label && activeGrid) activeGrid.rows.set(label, row.slice(1, activeGrid.squareMeters.length + 1));
+  }
+  if (!catalog.has("departamento") || !catalog.has("casa-ph-country")) throw new Error("Home quote spreadsheet is missing a housing category");
+  return catalog;
+}
+
+async function getCatalog() {
+  if (cache && cache.expiresAt > Date.now()) return cache.catalog;
   const response = await fetch(HOME_QUOTES_TSV_URL, { headers: { Accept: "text/tab-separated-values" } });
   if (!response.ok) throw new Error(`Home quote spreadsheet failed with status ${response.status}`);
-  const grid = parseGrid(await response.text());
-  cache = { grid, expiresAt: Date.now() + CACHE_TTL_MS };
+  const catalog = parseCatalog(await response.text());
+  cache = { catalog, expiresAt: Date.now() + CACHE_TTL_MS };
+  return catalog;
+}
+
+async function getGrid(homeType: HomeType) {
+  const category = categoryForHomeType(homeType);
+  const grid = (await getCatalog()).get(category);
+  if (!grid) throw new Error(`Home quote spreadsheet category "${category}" was not found`);
   return grid;
 }
 
@@ -64,8 +95,8 @@ function findRow(grid: HomeQuoteGrid, startsWith: string) {
   return entry[1];
 }
 
-export async function getHomeQuote(requestedSquareMeters: number): Promise<HomeQuote> {
-  const grid = await getGrid();
+export async function getHomeQuote(requestedSquareMeters: number, homeType: HomeType): Promise<HomeQuote> {
+  const grid = await getGrid(homeType);
   const min = grid.squareMeters[0]!;
   const max = grid.squareMeters.at(-1)!;
   if (!Number.isInteger(requestedSquareMeters) || !grid.squareMeters.includes(requestedSquareMeters)) {
@@ -90,6 +121,6 @@ export async function getHomeQuote(requestedSquareMeters: number): Promise<HomeQ
   };
 }
 
-export async function getHomeQuoteOptions() {
-  return (await getGrid()).squareMeters;
+export async function getHomeQuoteOptions(homeType: HomeType) {
+  return (await getGrid(homeType)).squareMeters;
 }
