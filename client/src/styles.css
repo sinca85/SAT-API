@@ -92,6 +92,21 @@ input {
   justify-self: end;
 }
 
+.mobile-navigation {
+  display: none;
+}
+
+.mobile-menu-button {
+  color: #fff !important;
+  font-weight: 700;
+}
+
+.mobile-menu-button:hover,
+.mobile-menu-button:focus-visible {
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+}
+
 .admin-content {
   width: min(1180px, calc(100% - 48px));
   margin: 0 auto;
@@ -231,8 +246,13 @@ input {
     padding: 0 16px;
   }
 
-  .admin-header nav {
-    grid-row: 2;
+  .desktop-navigation {
+    display: none;
+  }
+
+  .mobile-navigation {
+    display: block;
+    justify-self: end;
   }
 
   .admin-header {

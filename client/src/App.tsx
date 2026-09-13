@@ -18,6 +18,7 @@ import {
   SyncOutlined,
   BarChartOutlined,
   LinkOutlined,
+  MenuOutlined,
 } from "@ant-design/icons";
 import {
   App as AntApp,
@@ -1067,6 +1068,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [roles, setRoles] = useState<AccessRole[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const loadUsers = useCallback(async () => {
     if (!can("users.view")) { setLoading(false); return; }
@@ -1142,6 +1144,20 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
     [can],
   );
 
+  const mobileNavigationMenu = useMemo<MenuProps["items"]>(
+    () => [
+      can("leads.view") ? { key: "leads", label: "Leads", icon: <ContactsOutlined /> } : null,
+      can("faqs.view") ? { key: "faqs", label: "FAQs", icon: <SafetyCertificateOutlined /> } : null,
+      can("ai.view") ? { key: "ai", label: "IA", icon: <SafetyCertificateOutlined /> } : null,
+      can("analytics.view") ? { key: "analytics", label: "Analytics", icon: <BarChartOutlined /> } : null,
+      can("landings.view") ? { key: "landings", label: "Landings", icon: <LinkOutlined />, children: landingsMenu } : null,
+      (can("users.view") || can("roles.manage")) ? { key: "users-menu", label: "Usuarios", icon: <TeamOutlined />, children: userMenu } : null,
+      can("highlevel.view") && can("highlevel.contacts.view") ? { key: "highlevel", label: "Contactos", icon: <ContactsOutlined />, children: highLevelMenu } : null,
+      can("config.view") ? { key: "config", label: "Config", icon: <SettingOutlined /> } : null,
+    ].filter(Boolean) as MenuProps["items"],
+    [can, highLevelMenu, landingsMenu, userMenu],
+  );
+
   const logout = async () => {
     await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
     window.location.assign("/");
@@ -1151,7 +1167,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
     <Layout className="admin-layout">
       <Layout.Header className="admin-header">
         <img className="brand-logo" src="/sat-logo-full-blanco.svg" alt="Seguro a Tiempo" />
-        <nav aria-label="Navegación principal">
+        <nav className="desktop-navigation" aria-label="Navegación principal">
           <Space>
             {can("leads.view") && <Button type="text" className="header-menu-button" icon={<ContactsOutlined />} onClick={() => navigate("leads")}>Leads</Button>}
             {can("faqs.view") && <Button type="text" className="header-menu-button" icon={<SafetyCertificateOutlined />} onClick={() => navigate("faqs")}>FAQs</Button>}
@@ -1181,6 +1197,24 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
             {can("config.view") && <Button type="text" className="header-menu-button" icon={<SettingOutlined />} onClick={() => navigate("config")}>Config</Button>}
           </Space>
         </nav>
+        <div className="mobile-navigation">
+          <Dropdown
+            menu={{
+              items: mobileNavigationMenu,
+              onClick: ({ key }) => {
+                setMobileMenuOpen(false);
+                navigate(key as View);
+              },
+            }}
+            open={mobileMenuOpen}
+            onOpenChange={setMobileMenuOpen}
+            trigger={["click"]}
+          >
+            <Button type="text" className="mobile-menu-button" icon={<MenuOutlined />}>
+              Menú
+            </Button>
+          </Dropdown>
+        </div>
         <Space className="account-actions">
           <Typography.Text className="account-name">{sessionUser.name}</Typography.Text>
           <Button type="text" className="logout-button" icon={<LogoutOutlined />} onClick={() => void logout()}>
