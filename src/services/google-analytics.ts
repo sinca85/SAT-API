@@ -78,6 +78,21 @@ export interface AnalyticsDateRange {
   endDate?: string;
 }
 
+interface FunnelStep {
+  key: string;
+  label: string;
+  description: string;
+  users: number;
+  events: number;
+}
+
+interface UtmFunnelGroup {
+  campaign: string;
+  content: string;
+  visit?: Array<{ value?: string }>;
+  events: Map<string | undefined, Array<{ value?: string }>>;
+}
+
 function formatPeriodDate(value: string) {
   return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
 }
@@ -85,7 +100,7 @@ function formatPeriodDate(value: string) {
 export async function getAnalyticsOverview(propertyId: string, campaign: AnalyticsCampaignDefinition, range: AnalyticsDateRange = {}) {
   const dateRanges = [{ startDate: range.startDate ?? "30daysAgo", endDate: range.endDate ?? "today" }];
   const period = range.startDate && range.endDate ? `${formatPeriodDate(range.startDate)} al ${formatPeriodDate(range.endDate)}` : "Últimos 30 días";
-  const [totalsReport, sourcesReport, landingReport, eventsReport] = await Promise.all([
+  const [totalsReport, sourcesReport, landingReport, eventsReport, landingByUtmReport, eventsByUtmReport] = await Promise.all([
     runReport(propertyId, {
       dateRanges,
       metrics: [{ name: "activeUsers" }, { name: "sessions" }, { name: "screenPageViews" }],
@@ -114,22 +129,72 @@ export async function getAnalyticsOverview(propertyId: string, campaign: Analyti
         { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.contractEvent } } },
       ] } },
     }),
+    runReport(propertyId, {
+      dateRanges,
+      dimensions: [{ name: "sessionManualCampaignName" }, { name: "sessionManualAdContent" }],
+      metrics: [{ name: "activeUsers" }, { name: "screenPageViews" }],
+      dimensionFilter: { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: campaign.landingPath } } },
+      limit: "100",
+    }),
+    runReport(propertyId, {
+      dateRanges,
+      dimensions: [{ name: "sessionManualCampaignName" }, { name: "sessionManualAdContent" }, { name: "eventName" }],
+      metrics: [{ name: "eventCount" }, { name: "totalUsers" }],
+      dimensionFilter: { orGroup: { expressions: [
+        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.stepOneEvent } } },
+        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.quoteEvent } } },
+        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.contractEvent } } },
+      ] } },
+      limit: "300",
+    }),
   ]);
   const totals = totalsReport.totals?.[0]?.metricValues ?? totalsReport.rows?.[0]?.metricValues ?? [];
   const landing = landingReport.rows?.[0]?.metricValues ?? [];
   const events = new Map((eventsReport.rows ?? []).map((row) => [row.dimensionValues?.[0]?.value, row.metricValues ?? []]));
-  const funnel = [
+  const funnel: FunnelStep[] = [
     { key: "visit", label: `Visitas a ${campaign.landingPath}`, description: "Personas que ingresaron a la landing", users: numeric(landing[0]?.value), events: numeric(landing[1]?.value) },
     { key: "home", label: "Paso 1 completado", description: "Datos iniciales validados", users: numeric(events.get(campaign.stepOneEvent)?.[1]?.value), events: numeric(events.get(campaign.stepOneEvent)?.[0]?.value) },
     { key: "quote", label: "Cotización generada", description: "Primera etapa enviada", users: numeric(events.get(campaign.quoteEvent)?.[1]?.value), events: numeric(events.get(campaign.quoteEvent)?.[0]?.value) },
     { key: "contract", label: "Solicitud de contratación", description: "Datos finales enviados correctamente", users: numeric(events.get(campaign.contractEvent)?.[1]?.value), events: numeric(events.get(campaign.contractEvent)?.[0]?.value) },
   ];
+  const utmGroups = new Map<string, UtmFunnelGroup>();
+  const getUtmGroup = (campaignName?: string, contentName?: string) => {
+    const campaignValue = campaignName || "(sin campaña UTM)";
+    const contentValue = contentName || "(sin pieza UTM)";
+    const key = `${campaignValue}\u0000${contentValue}`;
+    const existing = utmGroups.get(key);
+    if (existing) return existing;
+    const created: UtmFunnelGroup = { campaign: campaignValue, content: contentValue, events: new Map() };
+    utmGroups.set(key, created);
+    return created;
+  };
+  for (const row of landingByUtmReport.rows ?? []) {
+    const [campaignName, contentName] = row.dimensionValues?.map((value) => value.value) ?? [];
+    getUtmGroup(campaignName, contentName).visit = row.metricValues;
+  }
+  for (const row of eventsByUtmReport.rows ?? []) {
+    const [campaignName, contentName, eventName] = row.dimensionValues?.map((value) => value.value) ?? [];
+    getUtmGroup(campaignName, contentName).events.set(eventName, row.metricValues ?? []);
+  }
+  const utmBreakdown = Array.from(utmGroups.values())
+    .map((group) => ({
+      campaign: group.campaign,
+      content: group.content,
+      funnel: [
+        { key: "visit", users: numeric(group.visit?.[0]?.value), events: numeric(group.visit?.[1]?.value) },
+        { key: "home", users: numeric(group.events.get(campaign.stepOneEvent)?.[1]?.value), events: numeric(group.events.get(campaign.stepOneEvent)?.[0]?.value) },
+        { key: "quote", users: numeric(group.events.get(campaign.quoteEvent)?.[1]?.value), events: numeric(group.events.get(campaign.quoteEvent)?.[0]?.value) },
+        { key: "contract", users: numeric(group.events.get(campaign.contractEvent)?.[1]?.value), events: numeric(group.events.get(campaign.contractEvent)?.[0]?.value) },
+      ],
+    }))
+    .sort((first, second) => (second.funnel[0]?.users ?? 0) - (first.funnel[0]?.users ?? 0));
   return {
     period,
     activeUsers: numeric(totals[0]?.value),
     sessions: numeric(totals[1]?.value),
     pageViews: numeric(totals[2]?.value),
     funnel,
+    utmBreakdown,
     channels: (sourcesReport.rows ?? []).map((row) => ({
       name: row.dimensionValues?.[0]?.value || "Sin clasificar",
       activeUsers: numeric(row.metricValues?.[0]?.value),
