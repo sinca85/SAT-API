@@ -87,6 +87,7 @@ interface FunnelStep {
 }
 
 interface UtmFunnelGroup {
+  source: string;
   campaign: string;
   content: string;
   visit?: Array<{ value?: string }>;
@@ -131,14 +132,14 @@ export async function getAnalyticsOverview(propertyId: string, campaign: Analyti
     }),
     runReport(propertyId, {
       dateRanges,
-      dimensions: [{ name: "sessionManualCampaignName" }, { name: "sessionManualAdContent" }],
+      dimensions: [{ name: "sessionManualSource" }, { name: "sessionManualCampaignName" }, { name: "sessionManualAdContent" }],
       metrics: [{ name: "activeUsers" }, { name: "screenPageViews" }],
       dimensionFilter: { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: campaign.landingPath } } },
       limit: "100",
     }),
     runReport(propertyId, {
       dateRanges,
-      dimensions: [{ name: "sessionManualCampaignName" }, { name: "sessionManualAdContent" }, { name: "eventName" }],
+      dimensions: [{ name: "sessionManualSource" }, { name: "sessionManualCampaignName" }, { name: "sessionManualAdContent" }, { name: "eventName" }],
       metrics: [{ name: "eventCount" }, { name: "totalUsers" }],
       dimensionFilter: { orGroup: { expressions: [
         { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.stepOneEvent } } },
@@ -158,26 +159,28 @@ export async function getAnalyticsOverview(propertyId: string, campaign: Analyti
     { key: "contract", label: "Solicitud de contratación", description: "Datos finales enviados correctamente", users: numeric(events.get(campaign.contractEvent)?.[1]?.value), events: numeric(events.get(campaign.contractEvent)?.[0]?.value) },
   ];
   const utmGroups = new Map<string, UtmFunnelGroup>();
-  const getUtmGroup = (campaignName?: string, contentName?: string) => {
+  const getUtmGroup = (sourceName?: string, campaignName?: string, contentName?: string) => {
+    const sourceValue = sourceName || "(sin source UTM)";
     const campaignValue = campaignName || "(sin campaña UTM)";
     const contentValue = contentName || "(sin pieza UTM)";
-    const key = `${campaignValue}\u0000${contentValue}`;
+    const key = `${sourceValue}\u0000${campaignValue}\u0000${contentValue}`;
     const existing = utmGroups.get(key);
     if (existing) return existing;
-    const created: UtmFunnelGroup = { campaign: campaignValue, content: contentValue, events: new Map() };
+    const created: UtmFunnelGroup = { source: sourceValue, campaign: campaignValue, content: contentValue, events: new Map() };
     utmGroups.set(key, created);
     return created;
   };
   for (const row of landingByUtmReport.rows ?? []) {
-    const [campaignName, contentName] = row.dimensionValues?.map((value) => value.value) ?? [];
-    getUtmGroup(campaignName, contentName).visit = row.metricValues;
+    const [sourceName, campaignName, contentName] = row.dimensionValues?.map((value) => value.value) ?? [];
+    getUtmGroup(sourceName, campaignName, contentName).visit = row.metricValues;
   }
   for (const row of eventsByUtmReport.rows ?? []) {
-    const [campaignName, contentName, eventName] = row.dimensionValues?.map((value) => value.value) ?? [];
-    getUtmGroup(campaignName, contentName).events.set(eventName, row.metricValues ?? []);
+    const [sourceName, campaignName, contentName, eventName] = row.dimensionValues?.map((value) => value.value) ?? [];
+    getUtmGroup(sourceName, campaignName, contentName).events.set(eventName, row.metricValues ?? []);
   }
   const utmBreakdown = Array.from(utmGroups.values())
     .map((group) => ({
+      source: group.source,
       campaign: group.campaign,
       content: group.content,
       funnel: [
