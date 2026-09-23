@@ -78,6 +78,20 @@ export interface AnalyticsDateRange {
   endDate?: string;
 }
 
+export async function getAnalyticsCampaignNames(propertyId: string, landingPath: string): Promise<string[]> {
+  const report = await runReport(propertyId, {
+    dateRanges: [{ startDate: "365daysAgo", endDate: "today" }],
+    dimensions: [{ name: "sessionManualCampaignName" }],
+    metrics: [{ name: "sessions" }],
+    dimensionFilter: { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: landingPath } } },
+    orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+    limit: "100",
+  });
+  return (report.rows ?? [])
+    .map((row) => row.dimensionValues?.[0]?.value?.trim() ?? "")
+    .filter((name) => name && name !== "(not set)");
+}
+
 interface FunnelStep {
   key: string;
   label: string;
@@ -98,18 +112,29 @@ function formatPeriodDate(value: string) {
   return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
 }
 
-export async function getAnalyticsOverview(propertyId: string, campaign: AnalyticsCampaignDefinition, range: AnalyticsDateRange = {}) {
+export async function getAnalyticsOverview(propertyId: string, campaign: AnalyticsCampaignDefinition, range: AnalyticsDateRange = {}, utmCampaign?: string) {
   const dateRanges = [{ startDate: range.startDate ?? "30daysAgo", endDate: range.endDate ?? "today" }];
   const period = range.startDate && range.endDate ? `${formatPeriodDate(range.startDate)} al ${formatPeriodDate(range.endDate)}` : "Últimos 30 días";
+  const campaignFilter = utmCampaign ? { filter: { fieldName: "sessionManualCampaignName", stringFilter: { matchType: "EXACT", value: utmCampaign } } } : undefined;
+  const landingPathFilter = { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: campaign.landingPath } } };
+  const landingFilters = campaignFilter ? { andGroup: { expressions: [landingPathFilter, campaignFilter] } } : landingPathFilter;
+  const eventFilter = { orGroup: { expressions: [
+    { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.stepOneEvent } } },
+    { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.quoteEvent } } },
+    { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.contractEvent } } },
+  ] } };
+  const eventsFilter = campaignFilter ? { andGroup: { expressions: [eventFilter, campaignFilter] } } : eventFilter;
   const [totalsReport, sourcesReport, landingReport, eventsReport, landingByUtmReport, eventsByUtmReport] = await Promise.all([
     runReport(propertyId, {
       dateRanges,
+      ...(campaignFilter ? { dimensionFilter: campaignFilter } : {}),
       metrics: [{ name: "activeUsers" }, { name: "sessions" }, { name: "screenPageViews" }],
     }),
     runReport(propertyId, {
       dateRanges,
       dimensions: [{ name: "sessionDefaultChannelGroup" }],
       metrics: [{ name: "activeUsers" }, { name: "sessions" }],
+      ...(campaignFilter ? { dimensionFilter: campaignFilter } : {}),
       orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
       limit: "8",
     }),
@@ -117,35 +142,27 @@ export async function getAnalyticsOverview(propertyId: string, campaign: Analyti
       dateRanges,
       dimensions: [{ name: "pagePath" }],
       metrics: [{ name: "activeUsers" }, { name: "screenPageViews" }],
-      dimensionFilter: { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: campaign.landingPath } } },
+      dimensionFilter: landingFilters,
       limit: "1",
     }),
     runReport(propertyId, {
       dateRanges,
       dimensions: [{ name: "eventName" }],
       metrics: [{ name: "eventCount" }, { name: "totalUsers" }],
-      dimensionFilter: { orGroup: { expressions: [
-        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.stepOneEvent } } },
-        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.quoteEvent } } },
-        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.contractEvent } } },
-      ] } },
+      dimensionFilter: eventsFilter,
     }),
     runReport(propertyId, {
       dateRanges,
       dimensions: [{ name: "sessionManualSource" }, { name: "sessionManualCampaignName" }, { name: "sessionManualAdContent" }],
       metrics: [{ name: "activeUsers" }, { name: "screenPageViews" }],
-      dimensionFilter: { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: campaign.landingPath } } },
+      dimensionFilter: landingFilters,
       limit: "100",
     }),
     runReport(propertyId, {
       dateRanges,
       dimensions: [{ name: "sessionManualSource" }, { name: "sessionManualCampaignName" }, { name: "sessionManualAdContent" }, { name: "eventName" }],
       metrics: [{ name: "eventCount" }, { name: "totalUsers" }],
-      dimensionFilter: { orGroup: { expressions: [
-        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.stepOneEvent } } },
-        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.quoteEvent } } },
-        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.contractEvent } } },
-      ] } },
+      dimensionFilter: eventsFilter,
       limit: "300",
     }),
   ]);

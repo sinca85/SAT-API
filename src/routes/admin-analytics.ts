@@ -4,7 +4,7 @@ import { requireActiveUser, requireAuthentication, requirePermission } from "../
 import { AnalyticsSettings } from "../models/analytics-settings.js";
 import { AnalyticsCampaign } from "../models/analytics-campaign.js";
 import { env } from "../config/env.js";
-import { getAnalyticsOverview } from "../services/google-analytics.js";
+import { getAnalyticsCampaignNames, getAnalyticsOverview } from "../services/google-analytics.js";
 
 const defaultMeasurementId = "G-WSQ0X7LXTC";
 const settingsInput = z.object({
@@ -60,7 +60,33 @@ adminAnalyticsRouter.put("/settings", requirePermission("config.manage"), async 
 
 adminAnalyticsRouter.get("/campaigns", requirePermission("analytics.view"), async (_request, response) => {
   await ensureDefaultCampaign();
-  response.json({ campaigns: await AnalyticsCampaign.find().sort({ active: -1, name: 1 }).lean() });
+  const configuredCampaigns = await AnalyticsCampaign.find().sort({ active: -1, name: 1 }).lean();
+  const configuration = await settings();
+  const discoveredCampaigns: Array<Record<string, unknown>> = [];
+  const defaultCampaign = configuredCampaigns.find((campaign) => campaign.slug === "allianz-hogar") ?? configuredCampaigns[0];
+  if (configuration.propertyId && defaultCampaign && env.GOOGLE_ANALYTICS_SERVICE_ACCOUNT_EMAIL && env.GOOGLE_ANALYTICS_SERVICE_ACCOUNT_PRIVATE_KEY) {
+    try {
+      const names = await getAnalyticsCampaignNames(configuration.propertyId, defaultCampaign.landingPath);
+      for (const name of names) {
+        if (configuredCampaigns.some((campaign) => campaign.slug === name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, ""))) continue;
+        discoveredCampaigns.push({
+          _id: `utm:${name}`,
+          name: `UTM · ${name}`,
+          utmCampaign: name,
+          slug: name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "").slice(0, 80) || "utm-campaign",
+          landingPath: defaultCampaign.landingPath,
+          stepOneEvent: defaultCampaign.stepOneEvent,
+          quoteEvent: defaultCampaign.quoteEvent,
+          contractEvent: defaultCampaign.contractEvent,
+          active: true,
+          automatic: true,
+        });
+      }
+    } catch {
+      // Keep configured campaigns available if GA4 campaign discovery is temporarily unavailable.
+    }
+  }
+  response.json({ campaigns: [...configuredCampaigns, ...discoveredCampaigns] });
 });
 
 adminAnalyticsRouter.post("/campaigns", requirePermission("analytics.manage"), async (request, response) => {
@@ -84,6 +110,7 @@ adminAnalyticsRouter.get("/overview", requirePermission("analytics.view"), async
   const configuration = await settings();
   await ensureDefaultCampaign();
   const campaignId = typeof request.query.campaignId === "string" ? request.query.campaignId : "";
+  const utmCampaign = campaignId.startsWith("utm:") ? campaignId.slice(4) : undefined;
   const dateRange = dateQuery.parse({
     startDate: typeof request.query.startDate === "string" ? request.query.startDate : undefined,
     endDate: typeof request.query.endDate === "string" ? request.query.endDate : undefined,
@@ -96,7 +123,10 @@ adminAnalyticsRouter.get("/overview", requirePermission("analytics.view"), async
     response.status(400).json({ error: "La fecha desde no puede ser posterior a la fecha hasta." });
     return;
   }
-  const campaign = (campaignId ? await AnalyticsCampaign.findById(campaignId) : null) ?? await AnalyticsCampaign.findOne({ active: true }).sort({ name: 1 });
+  await ensureDefaultCampaign();
+  const campaign = utmCampaign
+    ? await AnalyticsCampaign.findOne({ slug: "allianz-hogar", active: true }).lean()
+    : (campaignId ? await AnalyticsCampaign.findById(campaignId) : null) ?? await AnalyticsCampaign.findOne({ active: true }).sort({ name: 1 });
   if (!campaign) { response.json({ status: "needs_campaign", settings: configuration, message: "Creá una campaña para ver su embudo." }); return; }
   if (!configuration.propertyId) {
     response.json({ status: "needs_property_id", settings: configuration, message: "Cargá el Property ID numérico de GA4 para conectar las métricas." });
@@ -107,7 +137,19 @@ adminAnalyticsRouter.get("/overview", requirePermission("analytics.view"), async
     return;
   }
   try {
-    response.json({ status: "connected", settings: configuration, campaign, overview: await getAnalyticsOverview(configuration.propertyId, campaign, dateRange) });
+    const selectedCampaign = utmCampaign ? {
+      _id: `utm:${utmCampaign}`,
+      name: `UTM · ${utmCampaign}`,
+      utmCampaign,
+      slug: "utm-campaign",
+      landingPath: campaign.landingPath,
+      stepOneEvent: campaign.stepOneEvent,
+      quoteEvent: campaign.quoteEvent,
+      contractEvent: campaign.contractEvent,
+      active: true,
+      automatic: true,
+    } : campaign;
+    response.json({ status: "connected", settings: configuration, campaign: selectedCampaign, overview: await getAnalyticsOverview(configuration.propertyId, campaign, dateRange, utmCampaign) });
   } catch (error) {
     response.json({ status: "connection_error", settings: configuration, message: error instanceof Error ? error.message : "No se pudo consultar Google Analytics." });
   }
