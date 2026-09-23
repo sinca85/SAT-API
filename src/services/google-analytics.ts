@@ -78,6 +78,30 @@ export interface AnalyticsDateRange {
   endDate?: string;
 }
 
+export interface AnalyticsFunnelStepDefinition {
+  eventName: string;
+  label: string;
+}
+
+export async function getAnalyticsCampaignEvents(propertyId: string, utmCampaign: string, landingPath: string) {
+  const report = await runReport(propertyId, {
+    dateRanges: [{ startDate: "365daysAgo", endDate: "today" }],
+    dimensions: [{ name: "eventName" }],
+    metrics: [{ name: "eventCount" }, { name: "totalUsers" }],
+    dimensionFilter: { andGroup: { expressions: [
+      { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: landingPath } } },
+      { filter: { fieldName: "sessionManualCampaignName", stringFilter: { matchType: "EXACT", value: utmCampaign } } },
+    ] } },
+    orderBys: [{ metric: { metricName: "eventCount" }, desc: true }],
+    limit: "250",
+  });
+  return (report.rows ?? []).map((row) => ({
+    eventName: row.dimensionValues?.[0]?.value ?? "",
+    events: numeric(row.metricValues?.[0]?.value),
+    users: numeric(row.metricValues?.[1]?.value),
+  })).filter((event) => event.eventName);
+}
+
 export async function getAnalyticsCampaignNames(propertyId: string, landingPath: string): Promise<string[]> {
   const report = await runReport(propertyId, {
     dateRanges: [{ startDate: "365daysAgo", endDate: "today" }],
@@ -112,17 +136,18 @@ function formatPeriodDate(value: string) {
   return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
 }
 
-export async function getAnalyticsOverview(propertyId: string, campaign: AnalyticsCampaignDefinition, range: AnalyticsDateRange = {}, utmCampaign?: string) {
+export async function getAnalyticsOverview(propertyId: string, campaign: AnalyticsCampaignDefinition, range: AnalyticsDateRange = {}, utmCampaign?: string, configuredSteps?: AnalyticsFunnelStepDefinition[]) {
   const dateRanges = [{ startDate: range.startDate ?? "30daysAgo", endDate: range.endDate ?? "today" }];
   const period = range.startDate && range.endDate ? `${formatPeriodDate(range.startDate)} al ${formatPeriodDate(range.endDate)}` : "Últimos 30 días";
   const campaignFilter = utmCampaign ? { filter: { fieldName: "sessionManualCampaignName", stringFilter: { matchType: "EXACT", value: utmCampaign } } } : undefined;
   const landingPathFilter = { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: campaign.landingPath } } };
   const landingFilters = campaignFilter ? { andGroup: { expressions: [landingPathFilter, campaignFilter] } } : landingPathFilter;
-  const eventFilter = { orGroup: { expressions: [
-    { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.stepOneEvent } } },
-    { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.quoteEvent } } },
-    { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: campaign.contractEvent } } },
-  ] } };
+  const eventSteps: AnalyticsFunnelStepDefinition[] = configuredSteps?.length ? configuredSteps : [
+    { eventName: campaign.stepOneEvent, label: "Paso 1 completado" },
+    { eventName: campaign.quoteEvent, label: "Cotización generada" },
+    { eventName: campaign.contractEvent, label: "Solicitud de contratación" },
+  ];
+  const eventFilter = { orGroup: { expressions: eventSteps.map((step) => ({ filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: step.eventName } } })) } };
   const eventsFilter = campaignFilter ? { andGroup: { expressions: [eventFilter, campaignFilter] } } : eventFilter;
   const [totalsReport, sourcesReport, landingReport, eventsReport, landingByUtmReport, eventsByUtmReport] = await Promise.all([
     runReport(propertyId, {
@@ -171,9 +196,13 @@ export async function getAnalyticsOverview(propertyId: string, campaign: Analyti
   const events = new Map((eventsReport.rows ?? []).map((row) => [row.dimensionValues?.[0]?.value, row.metricValues ?? []]));
   const funnel: FunnelStep[] = [
     { key: "visit", label: `Visitas a ${campaign.landingPath}`, description: "Personas que ingresaron a la landing", users: numeric(landing[0]?.value), events: numeric(landing[1]?.value) },
-    { key: "home", label: "Paso 1 completado", description: "Datos iniciales validados", users: numeric(events.get(campaign.stepOneEvent)?.[1]?.value), events: numeric(events.get(campaign.stepOneEvent)?.[0]?.value) },
-    { key: "quote", label: "Cotización generada", description: "Primera etapa enviada", users: numeric(events.get(campaign.quoteEvent)?.[1]?.value), events: numeric(events.get(campaign.quoteEvent)?.[0]?.value) },
-    { key: "contract", label: "Solicitud de contratación", description: "Datos finales enviados correctamente", users: numeric(events.get(campaign.contractEvent)?.[1]?.value), events: numeric(events.get(campaign.contractEvent)?.[0]?.value) },
+    ...eventSteps.map((step, index) => ({
+      key: step.eventName,
+      label: step.label,
+      description: `Evento GA4: ${step.eventName}`,
+      users: numeric(events.get(step.eventName)?.[1]?.value),
+      events: numeric(events.get(step.eventName)?.[0]?.value),
+    })),
   ];
   const utmGroups = new Map<string, UtmFunnelGroup>();
   const getUtmGroup = (sourceName?: string, campaignName?: string, contentName?: string) => {
@@ -202,9 +231,7 @@ export async function getAnalyticsOverview(propertyId: string, campaign: Analyti
       content: group.content,
       funnel: [
         { key: "visit", users: numeric(group.visit?.[0]?.value), events: numeric(group.visit?.[1]?.value) },
-        { key: "home", users: numeric(group.events.get(campaign.stepOneEvent)?.[1]?.value), events: numeric(group.events.get(campaign.stepOneEvent)?.[0]?.value) },
-        { key: "quote", users: numeric(group.events.get(campaign.quoteEvent)?.[1]?.value), events: numeric(group.events.get(campaign.quoteEvent)?.[0]?.value) },
-        { key: "contract", users: numeric(group.events.get(campaign.contractEvent)?.[1]?.value), events: numeric(group.events.get(campaign.contractEvent)?.[0]?.value) },
+        ...eventSteps.map((step) => ({ key: step.eventName, users: numeric(group.events.get(step.eventName)?.[1]?.value), events: numeric(group.events.get(step.eventName)?.[0]?.value) })),
       ],
     }))
     .sort((first, second) => (second.funnel[0]?.users ?? 0) - (first.funnel[0]?.users ?? 0));

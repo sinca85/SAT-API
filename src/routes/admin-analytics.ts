@@ -3,8 +3,9 @@ import { z } from "zod";
 import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
 import { AnalyticsSettings } from "../models/analytics-settings.js";
 import { AnalyticsCampaign } from "../models/analytics-campaign.js";
+import { AnalyticsFunnelConfig } from "../models/analytics-funnel-config.js";
 import { env } from "../config/env.js";
-import { getAnalyticsCampaignNames, getAnalyticsOverview } from "../services/google-analytics.js";
+import { getAnalyticsCampaignEvents, getAnalyticsCampaignNames, getAnalyticsOverview } from "../services/google-analytics.js";
 
 const defaultMeasurementId = "G-WSQ0X7LXTC";
 const settingsInput = z.object({
@@ -23,6 +24,13 @@ const campaignInput = z.object({
 const dateQuery = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+const utmCampaignQuery = z.object({ utmCampaign: z.string().trim().min(1).max(200) });
+const funnelConfigInput = z.object({
+  steps: z.array(z.object({
+    eventName: z.string().trim().regex(/^[a-zA-Z][a-zA-Z0-9_]*$/).max(80),
+    label: z.string().trim().min(1).max(120),
+  })).max(20),
 });
 
 async function settings() {
@@ -89,6 +97,35 @@ adminAnalyticsRouter.get("/campaigns", requirePermission("analytics.view"), asyn
   response.json({ campaigns: [...configuredCampaigns, ...discoveredCampaigns] });
 });
 
+adminAnalyticsRouter.get("/funnel/events", requirePermission("analytics.view"), async (request, response) => {
+  const { utmCampaign } = utmCampaignQuery.parse(request.query);
+  const configuration = await settings();
+  await ensureDefaultCampaign();
+  const campaign = await AnalyticsCampaign.findOne({ slug: "allianz-hogar", active: true }).lean();
+  if (!configuration.propertyId || !campaign) { response.status(400).json({ error: "Configurá la propiedad GA4 y una landing para consultar eventos." }); return; }
+  if (!env.GOOGLE_ANALYTICS_SERVICE_ACCOUNT_EMAIL || !env.GOOGLE_ANALYTICS_SERVICE_ACCOUNT_PRIVATE_KEY) { response.status(400).json({ error: "Faltan las credenciales de Google Analytics." }); return; }
+  try {
+    const [events, funnel] = await Promise.all([
+      getAnalyticsCampaignEvents(configuration.propertyId, utmCampaign, campaign.landingPath),
+      AnalyticsFunnelConfig.findOne({ utmCampaign }).lean(),
+    ]);
+    response.json({ events, steps: funnel?.steps ?? [] });
+  } catch (error) {
+    response.status(502).json({ error: error instanceof Error ? error.message : "No se pudieron consultar los eventos de GA4." });
+  }
+});
+
+adminAnalyticsRouter.put("/funnel/config", requirePermission("analytics.manage"), async (request, response) => {
+  const { utmCampaign } = utmCampaignQuery.parse(request.query);
+  const { steps } = funnelConfigInput.parse(request.body);
+  const config = await AnalyticsFunnelConfig.findOneAndUpdate(
+    { utmCampaign },
+    { $set: { steps, updatedBy: request.user!.id }, $setOnInsert: { utmCampaign } },
+    { new: true, upsert: true, runValidators: true },
+  ).lean();
+  response.json({ config });
+});
+
 adminAnalyticsRouter.post("/campaigns", requirePermission("analytics.manage"), async (request, response) => {
   const campaign = await AnalyticsCampaign.create(campaignInput.parse(request.body));
   response.status(201).json({ campaign });
@@ -137,6 +174,7 @@ adminAnalyticsRouter.get("/overview", requirePermission("analytics.view"), async
     return;
   }
   try {
+    const funnelConfig = utmCampaign ? await AnalyticsFunnelConfig.findOne({ utmCampaign }).lean() : null;
     const selectedCampaign = utmCampaign ? {
       _id: `utm:${utmCampaign}`,
       name: `UTM · ${utmCampaign}`,
@@ -149,7 +187,7 @@ adminAnalyticsRouter.get("/overview", requirePermission("analytics.view"), async
       active: true,
       automatic: true,
     } : campaign;
-    response.json({ status: "connected", settings: configuration, campaign: selectedCampaign, overview: await getAnalyticsOverview(configuration.propertyId, campaign, dateRange, utmCampaign) });
+    response.json({ status: "connected", settings: configuration, campaign: selectedCampaign, overview: await getAnalyticsOverview(configuration.propertyId, campaign, dateRange, utmCampaign, funnelConfig?.steps) });
   } catch (error) {
     response.json({ status: "connection_error", settings: configuration, message: error instanceof Error ? error.message : "No se pudo consultar Google Analytics." });
   }
