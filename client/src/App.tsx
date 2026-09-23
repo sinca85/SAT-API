@@ -1,3 +1,4 @@
+import { AutoLandingPanel } from "./AutoLandingPanel";
 import {
   CheckCircleOutlined,
   DeleteOutlined,
@@ -57,7 +58,7 @@ GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 type UserRole = "admin" | "user";
 type UserStatus = "pending" | "active" | "disabled";
-type View = "users" | "roles" | "highlevel-contacts" | "leads" | "faqs" | "ai" | "config" | "analytics" | "landing-hogar";
+type View = "users" | "roles" | "highlevel-contacts" | "leads" | "faqs" | "ai" | "config" | "analytics" | "landing-hogar" | "landing-auto";
 type LeadStatus = "new" | "pending_contact" | "contacted" | "follow_up" | "interested" | "quote_sent" | "won" | "not_interested" | "not_qualified" | "unresponsive";
 
 interface SessionUser {
@@ -215,6 +216,7 @@ const viewPaths: Record<View, string> = {
   config: "/config",
   analytics: "/analytics",
   "landing-hogar": "/landings/hogar",
+  "landing-auto": "/landings/auto",
 };
 
 function viewFromPath(pathname: string): View {
@@ -1125,7 +1127,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   }, []);
 
   useEffect(() => {
-    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "ai" && can("ai.view")) || (view === "config" && can("config.view")) || (view === "analytics" && can("analytics.view")) || (view === "landing-hogar" && can("landings.view")) || (view === "highlevel-contacts" && can("highlevel.view") && can("highlevel.contacts.view"));
+    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "ai" && can("ai.view")) || (view === "config" && can("config.view")) || (view === "analytics" && can("analytics.view")) || ((view === "landing-hogar" || view === "landing-auto") && can("landings.view")) || (view === "highlevel-contacts" && can("highlevel.view") && can("highlevel.contacts.view"));
     if (allowed) return;
     const fallback: View | undefined = can("leads.view") ? "leads" : can("faqs.view") ? "faqs" : can("ai.view") ? "ai" : can("analytics.view") ? "analytics" : can("landings.view") ? "landing-hogar" : can("config.view") ? "config" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.view") && can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
     if (fallback) navigate(fallback);
@@ -1156,7 +1158,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   );
 
   const landingsMenu = useMemo<MenuProps["items"]>(
-    () => can("landings.view") ? [{ key: "landing-hogar", label: "Hogar", icon: <SafetyCertificateOutlined /> }] : [],
+    () => can("landings.view") ? [{ key: "landing-hogar", label: "Hogar", icon: <SafetyCertificateOutlined /> }, { key: "landing-auto", label: "Auto", icon: <SafetyCertificateOutlined /> }] : [],
     [can],
   );
 
@@ -1243,7 +1245,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <Flex justify="space-between" align="center" gap={16} wrap="wrap" className="page-heading">
           <div>
             <Typography.Title level={2}>
-              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : view === "ai" ? "Inteligencia artificial" : view === "analytics" ? "Analytics" : view === "landing-hogar" ? "Landing · Hogar" : view === "config" ? "Configuración" : "Contactos"}
+              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : view === "ai" ? "Inteligencia artificial" : view === "analytics" ? "Analytics" : view === "landing-auto" ? "Landing · Auto" : view === "landing-hogar" ? "Landing · Hogar" : view === "config" ? "Configuración" : "Contactos"}
             </Typography.Title>
             <Typography.Text type="secondary">
               {view === "users"
@@ -1254,7 +1256,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
                     ? "Solicitudes recibidas desde los cotizadores y su estado de sincronización."
                     : view === "faqs"
                       ? "Base de preguntas y respuestas organizada por aseguradora y tipo de seguro."
-                    : view === "ai" ? "Asistentes y bases de conocimiento por aseguradora y tipo de seguro." : view === "analytics" ? "Métricas y estado de conexión de Google Analytics." : view === "landing-hogar" ? "Controles de automatización y envíos de la landing de cotización de Hogar." : view === "config" ? "Datos reutilizables por las landings y los asistentes." : "Copia local de los contactos de la subcuenta de Seguro a Tiempo. Usá Sincronizar para actualizarla."}
+                    : view === "ai" ? "Asistentes y bases de conocimiento por aseguradora y tipo de seguro." : view === "analytics" ? "Métricas y estado de conexión de Google Analytics." : view === "landing-auto" ? "Acceso a Galeno y preferencias de la landing de Auto." : view === "landing-hogar" ? "Controles de automatización y envíos de la landing de cotización de Hogar." : view === "config" ? "Datos reutilizables por las landings y los asistentes." : "Copia local de los contactos de la subcuenta de Seguro a Tiempo. Usá Sincronizar para actualizarla."}
             </Typography.Text>
           </div>
           {view === "users" && (
@@ -1279,6 +1281,8 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
             can("config.view") ? <ConfigPanel canManage={can("config.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : view === "analytics" ? (
             can("analytics.view") ? <AnalyticsDashboard canManage={can("analytics.manage")} /> : <Result status="403" title="Sin acceso" />
+          ) : view === "landing-auto" ? (
+            can("landings.view") ? <AutoLandingPanel canManage={can("landings.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : view === "landing-hogar" ? (
             can("landings.view") ? <HomeLandingPanel canManage={can("landings.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : (

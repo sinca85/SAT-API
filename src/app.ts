@@ -19,6 +19,8 @@ import { aiRouter, aiAdminRouter } from "./routes/ai.js";
 import { adminConfigRouter, publicConfigRouter } from "./routes/config.js";
 import { adminAnalyticsRouter, publicAnalyticsRouter } from "./routes/admin-analytics.js";
 import { adminLandingsRouter } from "./routes/admin-landings.js";
+import { autoRouter } from "./routes/auto.js";
+import { adminAutoRouter } from "./routes/admin-auto.js";
 
 export const app = express();
 
@@ -85,7 +87,7 @@ app.use(passport.session());
 const publicDirectory = path.join(process.cwd(), "public");
 app.use(express.static(publicDirectory));
 
-const panelRoutes = ["/usuarios", "/roles", "/leads", "/faqs", "/ia", "/config", "/analytics", "/landings/hogar", "/highlevel/contactos"];
+const panelRoutes = ["/usuarios", "/roles", "/leads", "/faqs", "/ia", "/config", "/analytics", "/landings/hogar", "/landings/auto", "/highlevel/contactos"];
 
 app.get("/permisos", (_request, response) => response.redirect(302, "/roles"));
 
@@ -110,6 +112,8 @@ app.use("/admin/ai", aiAdminRouter);
 app.use("/admin/config", adminConfigRouter);
 app.use("/admin/analytics", adminAnalyticsRouter);
 app.use("/admin/landings", adminLandingsRouter);
+app.use("/admin/auto", adminAutoRouter);
+app.use("/api/auto", autoRouter);
 app.use("/admin/leads", adminLeadsRouter);
 app.use("/admin/users", adminUsersRouter);
 app.use("/admin/roles", adminRolesRouter);
