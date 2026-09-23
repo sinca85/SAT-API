@@ -996,6 +996,37 @@ type AnalyticsFunnelStep = { key: string; label: string; description: string; us
 type AnalyticsUtmBreakdown = { source: string; campaign: string; content: string; funnel: Array<Pick<AnalyticsFunnelStep, "key" | "users" | "events">> };
 type AnalyticsOverview = { period: string; activeUsers: number; sessions: number; pageViews: number; channels: Array<{ name: string; activeUsers: number; sessions: number }>; funnel: AnalyticsFunnelStep[]; utmBreakdown: AnalyticsUtmBreakdown[] };
 
+function AnalyticsUtmFunnels({ steps, groups }: { steps: AnalyticsFunnelStep[]; groups: AnalyticsUtmBreakdown[] }) {
+  if (!groups.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No hay datos UTM para graficar en este período" />;
+  return <Flex gap={16} wrap="wrap" style={{ marginTop: 16 }}>
+    {groups.map((group) => {
+      const visits = group.funnel[0]?.users ?? 0;
+      return <div key={`${group.source}-${group.campaign}-${group.content}`} style={{ flex: "1 1 360px", minWidth: 300, maxWidth: 620, padding: 18, border: "1px solid #e4ebf4", borderRadius: 14, background: "#fff" }}>
+        <Space direction="vertical" size={2} style={{ width: "100%", marginBottom: 18 }}>
+          <Typography.Text type="secondary">{group.source}</Typography.Text>
+          <Typography.Text strong>{group.campaign}</Typography.Text>
+          <Typography.Text>{group.content}</Typography.Text>
+        </Space>
+        <Space direction="vertical" size={14} style={{ width: "100%" }}>
+          {steps.map((step, index) => {
+            const count = group.funnel[index]?.users ?? 0;
+            const percent = visits ? Math.round((count / visits) * 100) : 0;
+            return <div key={step.key}>
+              <Flex justify="space-between" gap={8} style={{ marginBottom: 5 }}>
+                <Typography.Text style={{ minWidth: 0 }} ellipsis={{ tooltip: `${index + 1}. ${step.label}` }}>{index + 1}. {step.label}</Typography.Text>
+                <Typography.Text strong style={{ whiteSpace: "nowrap" }}>{count} <Typography.Text type="secondary">({percent}%)</Typography.Text></Typography.Text>
+              </Flex>
+              <div style={{ height: 12, width: "100%", borderRadius: 99, background: "#edf2f8", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${visits ? Math.min(100, (count / visits) * 100) : 0}%`, minWidth: count && !visits ? 4 : 0, borderRadius: 99, background: index === 0 ? "#1657b8" : "#ef7d00", transition: "width 180ms ease" }} />
+              </div>
+            </div>;
+          })}
+        </Space>
+      </div>;
+    })}
+  </Flex>;
+}
+
 type AnalyticsCampaignEvent = { eventName: string; events: number; users: number };
 type AnalyticsConfiguredStep = { eventName: string; label: string };
 
@@ -1077,14 +1108,11 @@ function AnalyticsDashboard({ canManage }: { canManage: boolean }) {
   const [analyticsTab, setAnalyticsTab] = useState("overview");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [editingCampaign, setEditingCampaign] = useState<Partial<AnalyticsCampaign> | null>(null);
-  const [savingCampaign, setSavingCampaign] = useState(false);
   const loadCampaigns = useCallback(async () => { try { const response = await requestJson<{ campaigns: AnalyticsCampaign[] }>("/admin/analytics/campaigns"); setCampaigns(response.campaigns); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar las campañas"); } }, [message]);
-  const load = useCallback(async () => { setLoading(true); try { const query = new URLSearchParams(); if (campaignId) query.set("campaignId", campaignId); if (startDate && endDate) { query.set("startDate", startDate); query.set("endDate", endDate); } setData(await requestJson(`/admin/analytics/overview${query.size ? `?${query.toString()}` : ""}`)); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar las métricas"); } finally { setLoading(false); } }, [message, campaignId, startDate, endDate]);
+  const load = useCallback(async () => { setLoading(true); try { const query = new URLSearchParams(); const selectedCampaignId = campaignId || data?.campaign?._id; if (selectedCampaignId) query.set("campaignId", selectedCampaignId); if (startDate && endDate) { query.set("startDate", startDate); query.set("endDate", endDate); } setData(await requestJson(`/admin/analytics/overview${query.size ? `?${query.toString()}` : ""}`)); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar las métricas"); } finally { setLoading(false); } }, [message, campaignId, data?.campaign?._id, startDate, endDate]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadCampaigns(); }, [loadCampaigns]);
   const analyticsTabs = <Tabs activeKey={analyticsTab} onChange={setAnalyticsTab} items={[{ key: "overview", label: "Resumen" }, { key: "campaigns", label: "Campañas" }]} />;
-  const saveCampaign = async () => { if (!editingCampaign?.name || !editingCampaign.slug || !editingCampaign.landingPath || !editingCampaign.stepOneEvent || !editingCampaign.quoteEvent || !editingCampaign.contractEvent) { message.error("Completá los datos de la campaña y sus eventos."); return; } setSavingCampaign(true); try { const payload = { ...editingCampaign, active: editingCampaign.active !== false }; const result = editingCampaign._id ? await requestJson<{ campaign: AnalyticsCampaign }>(`/admin/analytics/campaigns/${editingCampaign._id}`, { method: "PATCH", body: JSON.stringify(payload) }) : await requestJson<{ campaign: AnalyticsCampaign }>("/admin/analytics/campaigns", { method: "POST", body: JSON.stringify(payload) }); setEditingCampaign(null); setCampaignId(result.campaign._id); await loadCampaigns(); message.success("Campaña analítica guardada"); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo guardar la campaña"); } finally { setSavingCampaign(false); } };
   if (loading) return <Spin />;
   if (analyticsTab === "campaigns") return <Space direction="vertical" size="large" style={{ width: "100%" }}>{analyticsTabs}<AnalyticsCampaignSetup campaigns={campaigns} canManage={canManage} /></Space>;
   if (data?.status === "connected" && data.overview) {
@@ -1101,13 +1129,12 @@ function AnalyticsDashboard({ canManage }: { canManage: boolean }) {
       { title: "Último paso / visita", align: "right", render: (_value, record) => { const visits = record.funnel[0]?.users ?? 0; const lastStep = record.funnel[record.funnel.length - 1]?.users ?? 0; return <Tag color={lastStep ? "green" : "default"}>{visits ? `${Math.round((lastStep / visits) * 100)}%` : "—"}</Tag>; } },
     ];
     return <Space direction="vertical" size="large" style={{ width: "100%" }}>{analyticsTabs}
-      <Flex justify="space-between" align="center" wrap="wrap" gap={12}><Space wrap><Typography.Text type="secondary">{data.overview.period}</Typography.Text><Select style={{ minWidth: 280 }} value={campaignId || data.campaign?._id} options={campaigns.map(campaign => ({ value: campaign._id, label: campaign.name }))} onChange={value => setCampaignId(value)} /><Typography.Text type="secondary">Las opciones UTM se detectan automáticamente desde GA4.</Typography.Text>{canManage && !data.campaign?.automatic && <Button icon={<SettingOutlined />} onClick={() => setEditingCampaign(data.campaign ? { ...data.campaign } : null)}>Editar campaña</Button>}</Space><Button onClick={() => { void load(); void loadCampaigns(); }}>Actualizar métricas</Button></Flex>
+      <Flex justify="space-between" align="center" wrap="wrap" gap={12}><Space wrap><Typography.Text type="secondary">{data.overview.period}</Typography.Text><Select style={{ minWidth: 280 }} value={campaignId || data.campaign?._id} options={campaigns.map(campaign => ({ value: campaign._id, label: campaign.name }))} onChange={value => setCampaignId(value)} /><Typography.Text type="secondary">Las opciones UTM se detectan automáticamente desde GA4.</Typography.Text></Space><Button onClick={() => { void load(); void loadCampaigns(); }}>Actualizar métricas</Button></Flex>
       <Flex align="end" gap={12} wrap="wrap"><div><Typography.Text type="secondary">Desde</Typography.Text><Input type="date" value={startDate} onChange={event => setStartDate(event.target.value)} style={{ display: "block", width: 170, marginTop: 4 }} /></div><div><Typography.Text type="secondary">Hasta</Typography.Text><Input type="date" value={endDate} onChange={event => setEndDate(event.target.value)} style={{ display: "block", width: 170, marginTop: 4 }} /></div><Button type={startDate && endDate ? "default" : "primary"} onClick={() => { setStartDate(""); setEndDate(""); }}>Últimos 30 días</Button><Button type={startDate && endDate ? "primary" : "default"} disabled={!startDate || !endDate} onClick={() => void load()}>Rango personalizado</Button></Flex>
       <Flex gap={16} wrap="wrap">{[["Usuarios activos", data.overview.activeUsers], ["Sesiones", data.overview.sessions], ["Vistas de página", data.overview.pageViews]].map(([title, value]) => <div key={title as string} style={{ minWidth: 205, flex: "1 1 205px", padding: "22px 24px", border: "1px solid #e4ebf4", borderRadius: 14, background: "#fff" }}><Statistic title={title as string} value={value as number} /></div>)}</Flex>
       <Typography.Title level={4} style={{ marginBottom: -8 }}>Embudo · {data.campaign?.utmCampaign || data.campaign?.name}</Typography.Title>
-      <section className="config-section"><Typography.Title level={4}>Rendimiento por source, campaña y pieza</Typography.Title><Typography.Text type="secondary">El mismo embudo, separado por <code>utm_source</code>, <code>utm_campaign</code> y <code>utm_content</code>. Ideal para comparar canales, campañas y creatividades.</Typography.Text><Table rowKey={(record) => `${record.source}-${record.campaign}-${record.content}`} size="small" columns={utmColumns} dataSource={data.overview.utmBreakdown} pagination={false} scroll={{ x: 1220 }} style={{ marginTop: 16 }} /></section>
+      <section className="config-section"><Typography.Title level={4}>Embudo por source, campaña y pieza</Typography.Title><Typography.Text type="secondary">Cada gráfico usa los pasos configurados y muestra usuarios y porcentaje respecto de las visitas, desglosados por <code>utm_source</code>, <code>utm_campaign</code> y <code>utm_content</code>.</Typography.Text><AnalyticsUtmFunnels steps={data.overview.funnel} groups={data.overview.utmBreakdown} /><Divider /><Typography.Title level={4}>Detalle en tabla</Typography.Title><Table rowKey={(record) => `${record.source}-${record.campaign}-${record.content}`} size="small" columns={utmColumns} dataSource={data.overview.utmBreakdown} pagination={false} scroll={{ x: 1220 }} style={{ marginTop: 16 }} /></section>
       <section className="config-section"><Typography.Title level={4}>Canales de adquisición</Typography.Title><Table rowKey="name" size="small" columns={channelColumns} dataSource={data.overview.channels} pagination={false} /></section>
-      <Modal open={Boolean(editingCampaign)} title={editingCampaign?._id ? "Editar campaña analítica" : "Nueva campaña analítica"} okText="Guardar" confirmLoading={savingCampaign} onCancel={() => setEditingCampaign(null)} onOk={() => void saveCampaign()}>{editingCampaign && <Space direction="vertical" style={{ width: "100%" }}><Input value={editingCampaign.name} placeholder="Nombre visible" onChange={event => setEditingCampaign({ ...editingCampaign, name: event.target.value })} /><Input value={editingCampaign.slug} placeholder="Slug (ej. allianz-hogar)" onChange={event => setEditingCampaign({ ...editingCampaign, slug: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-") })} /><Input value={editingCampaign.landingPath} placeholder="Ruta de la landing (ej. /hogar)" onChange={event => setEditingCampaign({ ...editingCampaign, landingPath: event.target.value })} /><Divider>Eventos de GA4</Divider><Input value={editingCampaign.stepOneEvent} placeholder="Evento de paso 1" onChange={event => setEditingCampaign({ ...editingCampaign, stepOneEvent: event.target.value })} /><Input value={editingCampaign.quoteEvent} placeholder="Evento de cotización" onChange={event => setEditingCampaign({ ...editingCampaign, quoteEvent: event.target.value })} /><Input value={editingCampaign.contractEvent} placeholder="Evento de contratación" onChange={event => setEditingCampaign({ ...editingCampaign, contractEvent: event.target.value })} /><Switch checked={editingCampaign.active !== false} onChange={active => setEditingCampaign({ ...editingCampaign, active })} checkedChildren="Activa" unCheckedChildren="Inactiva" /></Space>}</Modal>
     </Space>;
   }
   return <Space direction="vertical" size="large" style={{ width: "100%" }}>{analyticsTabs}
