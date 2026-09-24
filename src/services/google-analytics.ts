@@ -149,7 +149,27 @@ export async function getAnalyticsOverview(propertyId: string, campaign: Analyti
   ];
   const eventFilter = { orGroup: { expressions: eventSteps.map((step) => ({ filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: step.eventName } } })) } };
   const eventsFilter = campaignFilter ? { andGroup: { expressions: [eventFilter, campaignFilter] } } : eventFilter;
-  const [totalsReport, sourcesReport, landingReport, eventsReport, landingByUtmReport, eventsByUtmReport] = await Promise.all([
+  const getDistribution = async (dimension: string) => {
+    try {
+      const report = await runReport(propertyId, {
+        dateRanges,
+        dimensions: [{ name: dimension }],
+        metrics: [{ name: "activeUsers" }, { name: "sessions" }],
+        dimensionFilter: landingFilters,
+        orderBys: [{ metric: { metricName: "activeUsers" }, desc: true }],
+        limit: "100",
+      });
+      return (report.rows ?? []).map((row) => ({
+        name: row.dimensionValues?.[0]?.value || "(sin datos)",
+        activeUsers: numeric(row.metricValues?.[0]?.value),
+        sessions: numeric(row.metricValues?.[1]?.value),
+      }));
+    } catch {
+      // GA4 can suppress demographic rows or deny a demographic dimension for a property.
+      return [];
+    }
+  };
+  const [totalsReport, sourcesReport, landingReport, eventsReport, landingByUtmReport, eventsByUtmReport, regions, ageGroups, genders, devices] = await Promise.all([
     runReport(propertyId, {
       dateRanges,
       ...(campaignFilter ? { dimensionFilter: campaignFilter } : {}),
@@ -190,6 +210,10 @@ export async function getAnalyticsOverview(propertyId: string, campaign: Analyti
       dimensionFilter: eventsFilter,
       limit: "300",
     }),
+    getDistribution("region"),
+    getDistribution("userAgeBracket"),
+    getDistribution("userGender"),
+    getDistribution("deviceCategory"),
   ]);
   const totals = totalsReport.totals?.[0]?.metricValues ?? totalsReport.rows?.[0]?.metricValues ?? [];
   const landing = landingReport.rows?.[0]?.metricValues ?? [];
@@ -242,6 +266,8 @@ export async function getAnalyticsOverview(propertyId: string, campaign: Analyti
     pageViews: numeric(totals[2]?.value),
     funnel,
     utmBreakdown,
+    demographics: { regions, ageGroups, genders },
+    devices,
     channels: (sourcesReport.rows ?? []).map((row) => ({
       name: row.dimensionValues?.[0]?.value || "Sin clasificar",
       activeUsers: numeric(row.metricValues?.[0]?.value),

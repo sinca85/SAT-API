@@ -1011,7 +1011,33 @@ function ConfigPanel({ canManage }: { canManage: boolean }) {
 
 type AnalyticsFunnelStep = { key: string; label: string; description: string; users: number; events: number };
 type AnalyticsUtmBreakdown = { source: string; campaign: string; content: string; funnel: Array<Pick<AnalyticsFunnelStep, "key" | "users" | "events">> };
-type AnalyticsOverview = { period: string; activeUsers: number; sessions: number; pageViews: number; channels: Array<{ name: string; activeUsers: number; sessions: number }>; funnel: AnalyticsFunnelStep[]; utmBreakdown: AnalyticsUtmBreakdown[] };
+type AnalyticsOverview = { period: string; activeUsers: number; sessions: number; pageViews: number; channels: Array<{ name: string; activeUsers: number; sessions: number }>; demographics: { regions: Array<{ name: string; activeUsers: number; sessions: number }>; ageGroups: Array<{ name: string; activeUsers: number; sessions: number }>; genders: Array<{ name: string; activeUsers: number; sessions: number }> }; devices: Array<{ name: string; activeUsers: number; sessions: number }>; funnel: AnalyticsFunnelStep[]; utmBreakdown: AnalyticsUtmBreakdown[] };
+
+function AnalyticsDevicePieChart({ devices }: { devices: AnalyticsOverview["devices"] }) {
+  const colors = ["#1657b8", "#ef7d00", "#18a56b", "#7b61a8"];
+  const total = devices.reduce((sum, device) => sum + device.activeUsers, 0);
+  const labels: Record<string, string> = { mobile: "Mobile", desktop: "Desktop", tablet: "Tablet" };
+  let angle = -Math.PI / 2;
+  const slices = devices.map((device, index) => {
+    const fraction = total ? device.activeUsers / total : 0;
+    const startAngle = angle;
+    angle += fraction * Math.PI * 2;
+    const endAngle = angle;
+    const radius = 90, center = 110;
+    const startX = center + radius * Math.cos(startAngle), startY = center + radius * Math.sin(startAngle);
+    const endX = center + radius * Math.cos(endAngle), endY = center + radius * Math.sin(endAngle);
+    const path = fraction >= 0.999999 ? undefined : `M ${center} ${center} L ${startX} ${startY} A ${radius} ${radius} 0 ${fraction > 0.5 ? 1 : 0} 1 ${endX} ${endY} Z`;
+    return { ...device, label: labels[device.name.toLowerCase()] ?? device.name, color: colors[index % colors.length], fraction, path };
+  });
+  return <div style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap", padding: "12px 0" }}>
+    {total ? <svg viewBox="0 0 220 220" role="img" aria-label="Usuarios por tipo de dispositivo" style={{ width: 220, height: 220, maxWidth: "100%" }}>
+      {slices.map((slice) => slice.path
+        ? <path key={slice.name} d={slice.path} fill={slice.color} stroke="#fff" strokeWidth="2"><title>{slice.label}: {slice.activeUsers} usuarios ({Math.round(slice.fraction * 100)}%)</title></path>
+        : <circle key={slice.name} cx="110" cy="110" r="90" fill={slice.color}><title>{slice.label}: {slice.activeUsers} usuarios (100%)</title></circle>)}
+    </svg> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="GA4 no proporcionó datos de dispositivos para este período" />}
+    {Boolean(total) && <Space direction="vertical" size="middle">{slices.map((slice) => <div key={slice.name} style={{ display: "flex", alignItems: "center", gap: 10 }}><span aria-hidden="true" style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: slice.color }} /><Typography.Text>{slice.label}</Typography.Text><Typography.Text strong>{slice.activeUsers}</Typography.Text><Typography.Text type="secondary">({Math.round(slice.fraction * 100)}%)</Typography.Text></div>)}</Space>}
+  </div>;
+}
 
 function AnalyticsUtmFunnels({ steps, groups }: { steps: AnalyticsFunnelStep[]; groups: AnalyticsUtmBreakdown[] }) {
   if (!groups.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No hay datos UTM para graficar en este período" />;
@@ -1146,6 +1172,11 @@ function AnalyticsDashboard({ canManage }: { canManage: boolean }) {
       { title: "Usuarios", dataIndex: "activeUsers", align: "right" },
       { title: "Sesiones", dataIndex: "sessions", align: "right" },
     ];
+    const demographicColumns: TableColumnsType<{ name: string; activeUsers: number; sessions: number }> = [
+      { title: "Grupo", dataIndex: "name", render: (value: string) => value === "(other)" ? "Otros" : value === "(not set)" ? "Sin datos" : value },
+      { title: "Usuarios", dataIndex: "activeUsers", align: "right" },
+      { title: "Sesiones", dataIndex: "sessions", align: "right" },
+    ];
     const utmColumns: TableColumnsType<AnalyticsUtmBreakdown> = [
       { title: "Source UTM", dataIndex: "source", render: (value: string) => value === "(sin source UTM)" ? <Typography.Text type="secondary">Sin source</Typography.Text> : value },
       { title: "Campaña UTM", dataIndex: "campaign", render: (value: string) => value === "(sin campaña UTM)" ? <Typography.Text type="secondary">Sin UTM</Typography.Text> : value },
@@ -1159,6 +1190,10 @@ function AnalyticsDashboard({ canManage }: { canManage: boolean }) {
       <Flex gap={16} wrap="wrap">{[["Usuarios activos", data.overview.activeUsers], ["Sesiones", data.overview.sessions], ["Vistas de página", data.overview.pageViews]].map(([title, value]) => <div key={title as string} style={{ minWidth: 205, flex: "1 1 205px", padding: "22px 24px", border: "1px solid #e4ebf4", borderRadius: 14, background: "#fff" }}><Statistic title={title as string} value={value as number} /></div>)}</Flex>
       <section className="config-section"><Typography.Title level={4}>Embudo por source, campaña y pieza</Typography.Title><Typography.Text type="secondary">Cada gráfico usa los pasos configurados y muestra usuarios y porcentaje respecto de las visitas, desglosados por <code>utm_source</code>, <code>utm_campaign</code> y <code>utm_content</code>.</Typography.Text><AnalyticsUtmFunnels steps={data.overview.funnel} groups={data.overview.utmBreakdown} /><Divider /><Typography.Title level={4}>Detalle en tabla</Typography.Title><Table rowKey={(record) => `${record.source}-${record.campaign}-${record.content}`} size="small" columns={utmColumns} dataSource={data.overview.utmBreakdown} pagination={false} scroll={{ x: 1220 }} style={{ marginTop: 16 }} /></section>
       <section className="config-section"><Typography.Title level={4}>Canales de adquisición</Typography.Title><Table rowKey="name" size="small" columns={channelColumns} dataSource={data.overview.channels} pagination={false} /></section>
+      <section className="config-section"><Typography.Title level={4}>Datos demográficos</Typography.Title><Typography.Text type="secondary">Según la región y los datos demográficos disponibles en GA4 para este período. Google puede omitir algunos valores por privacidad o volumen insuficiente.</Typography.Text><Flex gap={24} wrap="wrap" style={{ marginTop: 16 }}>
+        {[["Provincia / región", data.overview.demographics.regions], ["Edad", data.overview.demographics.ageGroups], ["Sexo", data.overview.demographics.genders]].map(([title, rows]) => <div key={title as string} style={{ minWidth: 280, flex: "1 1 280px" }}><Typography.Title level={5}>{title as string}</Typography.Title><Table rowKey="name" size="small" columns={demographicColumns} dataSource={rows as Array<{ name: string; activeUsers: number; sessions: number }>} pagination={false} locale={{ emptyText: "GA4 no proporcionó datos para este período" }} /></div>)}
+      </Flex></section>
+      <section className="config-section"><Typography.Title level={4}>Dispositivos</Typography.Title><Typography.Text type="secondary">Usuarios activos por tipo de dispositivo en el mismo período y filtro seleccionado.</Typography.Text><AnalyticsDevicePieChart devices={data.overview.devices} /></section>
     </Space>;
   }
   return <Space direction="vertical" size="large" style={{ width: "100%" }}>{analyticsTabs}
