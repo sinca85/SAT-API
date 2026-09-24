@@ -1104,7 +1104,7 @@ function AnalyticsDashboard({ canManage }: { canManage: boolean }) {
   const [data, setData] = useState<{ status: string; message?: string; settings: AnalyticsConfiguration; campaign?: AnalyticsCampaign; overview?: AnalyticsOverview } | null>(null);
   const [loading, setLoading] = useState(true);
   const [campaigns, setCampaigns] = useState<AnalyticsCampaign[]>([]);
-  const [campaignId, setCampaignId] = useState("");
+  const [campaignId, setCampaignId] = useState(() => window.localStorage.getItem("sat.analytics.selectedCampaignId") || "");
   const [analyticsTab, setAnalyticsTab] = useState("overview");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -1112,6 +1112,13 @@ function AnalyticsDashboard({ canManage }: { canManage: boolean }) {
   const load = useCallback(async () => { setLoading(true); try { const query = new URLSearchParams(); const selectedCampaignId = campaignId || data?.campaign?._id; if (selectedCampaignId) query.set("campaignId", selectedCampaignId); if (startDate && endDate) { query.set("startDate", startDate); query.set("endDate", endDate); } setData(await requestJson(`/admin/analytics/overview${query.size ? `?${query.toString()}` : ""}`)); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar las métricas"); } finally { setLoading(false); } }, [message, campaignId, data?.campaign?._id, startDate, endDate]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadCampaigns(); }, [loadCampaigns]);
+  useEffect(() => {
+    if (campaignId) window.localStorage.setItem("sat.analytics.selectedCampaignId", campaignId);
+    else window.localStorage.removeItem("sat.analytics.selectedCampaignId");
+  }, [campaignId]);
+  useEffect(() => {
+    if (campaignId && campaigns.length && !campaigns.some(campaign => campaign._id === campaignId)) setCampaignId("");
+  }, [campaignId, campaigns]);
   const analyticsTabs = <Tabs activeKey={analyticsTab} onChange={setAnalyticsTab} items={[{ key: "overview", label: "Resumen" }, { key: "campaigns", label: "Campañas" }]} />;
   if (loading) return <Spin />;
   if (analyticsTab === "campaigns") return <Space direction="vertical" size="large" style={{ width: "100%" }}>{analyticsTabs}<AnalyticsCampaignSetup campaigns={campaigns} canManage={canManage} /></Space>;
