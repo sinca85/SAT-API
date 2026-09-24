@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { ProxyAgent, type Dispatcher } from "undici";
 import { GalenoSession } from "../models/galeno-session.js";
 import { canStoreAutoSecrets, decryptAutoSecret, encryptAutoSecret } from "./auto-secrets.js";
 import { GALENO_SANDBOX_URL, type AutoConfiguration } from "./auto-settings.js";
@@ -39,7 +40,32 @@ const databaseTokens: TokenStore = {
 const sleep = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 
-export function createGalenoClient(settings: AutoConfiguration, transport: typeof fetch = fetch, tokens: TokenStore = databaseTokens) {
+type ProxyRequestInit = RequestInit & { dispatcher?: Dispatcher };
+export type GalenoTransport = (url: string, init: RequestInit) => Promise<Response>;
+
+let proxyUrl = "";
+let proxyAgent: ProxyAgent | undefined;
+
+function fixieDispatcher(value: string): ProxyAgent {
+  if (proxyAgent && proxyUrl === value) return proxyAgent;
+  let parsed: URL;
+  try { parsed = new URL(value); }
+  catch { throw new GalenoError("proxy_configuration_invalid", "La conexión segura de Galeno no está configurada correctamente.", 503); }
+  if (!/^https?:$/.test(parsed.protocol) || !parsed.hostname || !parsed.username || !parsed.password) {
+    throw new GalenoError("proxy_configuration_invalid", "La conexión segura de Galeno no está configurada correctamente.", 503);
+  }
+  proxyUrl = value;
+  proxyAgent = new ProxyAgent(value);
+  return proxyAgent;
+}
+
+export function createGalenoTransport(fixieUrl = process.env.FIXIE_URL, directFetch: typeof fetch = fetch): GalenoTransport {
+  if (!fixieUrl) return (url, init) => directFetch(url, init);
+  const dispatcher = fixieDispatcher(fixieUrl);
+  return (url, init) => directFetch(url, { ...init, dispatcher } as ProxyRequestInit);
+}
+
+export function createGalenoClient(settings: AutoConfiguration, transport: GalenoTransport = createGalenoTransport(), tokens: TokenStore = databaseTokens) {
   // Only the documented sandbox is permitted. Never send credentials to a configurable host.
   if (settings.environment !== "test" || settings.baseUrl !== GALENO_SANDBOX_URL) throw new GalenoError("sandbox_only", "Esta integración está habilitada únicamente para el sandbox de Galeno.", 503);
   if (!settings.username || !settings.passwordEncrypted || !canStoreAutoSecrets()) throw new GalenoError("credentials_missing", "Falta configurar el usuario y la contraseña de Galeno.", 503);

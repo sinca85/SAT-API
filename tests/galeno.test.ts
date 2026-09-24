@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { autoDefaults, type AutoConfiguration } from "../src/services/auto-settings.js";
 import { encryptAutoSecret } from "../src/services/auto-secrets.js";
-import { createGalenoClient, GalenoError, type TokenStore, type GalenoClient } from "../src/services/galeno-client.js";
+import { createGalenoClient, createGalenoTransport, GalenoError, type TokenStore, type GalenoClient } from "../src/services/galeno-client.js";
 import { quoteInput, quoteAuto, normalizeQuote } from "../src/services/galeno-quotes.js";
 
 process.env.GALENO_SETTINGS_ENCRYPTION_KEY = "cd".repeat(32);
@@ -18,6 +18,16 @@ function memoryTokens(): TokenStore {
   };
 }
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
+
+test("Fixie is applied only by the Galeno transport and invalid proxy credentials are rejected", async () => {
+  let receivedInit: RequestInit | undefined;
+  const directFetch: typeof fetch = async (_url, init) => { receivedInit = init; return json({ ok: true }); };
+  await createGalenoTransport("http://user:password@proxy.example:8080", directFetch)(`${autoDefaults.baseUrl}/health`, { method: "GET" });
+  assert.ok((receivedInit as RequestInit & { dispatcher?: unknown }).dispatcher);
+  await createGalenoTransport(undefined, directFetch)(`${autoDefaults.baseUrl}/health`, { method: "GET" });
+  assert.equal((receivedInit as RequestInit & { dispatcher?: unknown }).dispatcher, undefined);
+  assert.throws(() => createGalenoTransport("http://proxy.example:8080", directFetch), /no está configurada/);
+});
 
 test("Galeno shares tokens, refreshes once after 401 and sends credentials only to sandbox", async () => {
   let tokens = 0, authorized = 0, invalidateNext = false;
