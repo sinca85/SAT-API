@@ -66,7 +66,19 @@ adminAnalyticsRouter.put("/settings", requirePermission("config.manage"), async 
   response.json({ settings: updated });
 });
 
-adminAnalyticsRouter.get("/campaigns", requirePermission("analytics.view"), async (_request, response) => {
+adminAnalyticsRouter.get("/campaigns", requirePermission("analytics.view"), async (request, response) => {
+  const dateRange = dateQuery.parse({
+    startDate: typeof request.query.startDate === "string" ? request.query.startDate : undefined,
+    endDate: typeof request.query.endDate === "string" ? request.query.endDate : undefined,
+  });
+  if (Boolean(dateRange.startDate) !== Boolean(dateRange.endDate)) {
+    response.status(400).json({ error: "Indicá ambas fechas para aplicar un rango personalizado." });
+    return;
+  }
+  if (dateRange.startDate && dateRange.endDate && dateRange.startDate > dateRange.endDate) {
+    response.status(400).json({ error: "La fecha desde no puede ser posterior a la fecha hasta." });
+    return;
+  }
   await ensureDefaultCampaign();
   const configuredCampaigns = await AnalyticsCampaign.find().sort({ active: -1, name: 1 }).lean();
   const configuration = await settings();
@@ -74,7 +86,7 @@ adminAnalyticsRouter.get("/campaigns", requirePermission("analytics.view"), asyn
   const defaultCampaign = configuredCampaigns.find((campaign) => campaign.slug === "allianz-hogar") ?? configuredCampaigns[0];
   if (configuration.propertyId && defaultCampaign && env.GOOGLE_ANALYTICS_SERVICE_ACCOUNT_EMAIL && env.GOOGLE_ANALYTICS_SERVICE_ACCOUNT_PRIVATE_KEY) {
     try {
-      const names = await getAnalyticsCampaignNames(configuration.propertyId, defaultCampaign.landingPath);
+      const names = await getAnalyticsCampaignNames(configuration.propertyId, defaultCampaign.landingPath, dateRange);
       for (const name of names) {
         discoveredCampaigns.push({
           _id: `utm:${name}`,

@@ -102,9 +102,9 @@ export async function getAnalyticsCampaignEvents(propertyId: string, utmCampaign
   })).filter((event) => event.eventName);
 }
 
-export async function getAnalyticsCampaignNames(propertyId: string, landingPath: string): Promise<string[]> {
+export async function getAnalyticsCampaignNames(propertyId: string, landingPath: string, range: AnalyticsDateRange = {}): Promise<string[]> {
   const report = await runReport(propertyId, {
-    dateRanges: [{ startDate: "365daysAgo", endDate: "today" }],
+    dateRanges: [{ startDate: range.startDate ?? "30daysAgo", endDate: range.endDate ?? "today" }],
     dimensions: [{ name: "sessionManualCampaignName" }],
     metrics: [{ name: "sessions" }],
     dimensionFilter: { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: landingPath } } },
