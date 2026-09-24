@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { Types } from "mongoose";
 import { z } from "zod";
 import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
 import { Faq } from "../models/faq.js";
@@ -10,6 +11,10 @@ const faqInput = z.object({
   answer: z.string().trim().min(5).max(10000),
   active: z.boolean().default(true),
   source: z.string().trim().max(250).default("manual"),
+});
+
+const faqImportInput = z.object({
+  faqs: z.array(faqInput).min(1).max(500),
 });
 
 const querySchema = z.object({
@@ -42,6 +47,32 @@ adminFaqsRouter.post("/", async (request, response) => {
   const input = faqInput.parse(request.body);
   const faq = await Faq.create({ ...input, createdBy: request.user!.id, updatedBy: request.user!.id });
   response.status(201).json({ faq });
+});
+
+adminFaqsRouter.post("/import", async (request, response) => {
+  if (!canManage(request)) { response.status(403).json({ error: "Insufficient permissions" }); return; }
+  const input = faqImportInput.parse(request.body);
+  const uniqueFaqs = Array.from(
+    new Map(input.faqs.map((faq) => [`${faq.insurer.toLowerCase()}\u0000${faq.product.toLowerCase()}\u0000${faq.question}`, faq])).values(),
+  );
+  const questions = uniqueFaqs.map((faq) => faq.question);
+  const existing = await Faq.find({ question: { $in: questions } }, { insurer: 1, product: 1, question: 1 }).lean();
+  const existingKeys = new Set(existing.map((faq) => `${faq.insurer}\u0000${faq.product}\u0000${faq.question}`));
+  const userId = new Types.ObjectId(request.user!.id);
+
+  await Faq.bulkWrite(uniqueFaqs.map((faq) => ({
+    updateOne: {
+      filter: { insurer: faq.insurer.toLowerCase(), product: faq.product.toLowerCase(), question: faq.question },
+      update: {
+        $set: { answer: faq.answer, active: faq.active, source: faq.source, updatedBy: userId },
+        $setOnInsert: { insurer: faq.insurer, product: faq.product, question: faq.question, createdBy: userId },
+      },
+      upsert: true,
+    },
+  })));
+
+  const updated = uniqueFaqs.filter((faq) => existingKeys.has(`${faq.insurer.toLowerCase()}\u0000${faq.product.toLowerCase()}\u0000${faq.question}`)).length;
+  response.status(201).json({ total: uniqueFaqs.length, created: uniqueFaqs.length - updated, updated });
 });
 
 adminFaqsRouter.patch("/:faqId", async (request, response) => {

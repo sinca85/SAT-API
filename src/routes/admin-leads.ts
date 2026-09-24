@@ -40,21 +40,14 @@ const updateSchema = z.object({
 
 const noteSchema = z.object({ text: z.string().trim().min(1).max(3000) });
 
-export const adminLeadsRouter = Router();
-adminLeadsRouter.use(requireAuthentication, requireActiveUser);
-adminLeadsRouter.use(requirePermission("leads.view"));
+type ContactGroupingLead = {
+  _id: unknown;
+  email?: string;
+  phone?: string;
+  personal?: { email?: string; phone?: string } | null;
+};
 
-adminLeadsRouter.get("/", async (request, response) => {
-  const { page, limit, source, status, sortBy, sortOrder } = listSchema.parse(request.query);
-  const filter = { ...(source ? { source } : {}), ...(status ? { status } : {}) };
-  const sortFields = { fullName: "fullName", monthlyPrice: "quote.monthlyPrice", source: "source", status: "status", syncStatus: "highLevel.syncStatus", createdAt: "createdAt" } as const;
-  const sort = { [sortFields[sortBy]]: sortOrder === "asc" ? 1 : -1 } as Record<string, 1 | -1>;
-  const leads = await Lead.find(filter).sort(sort).lean();
-
-  // A person can quote more than once. We intentionally keep every quote as
-  // a lead, but present them under a single contact in the administrative UI.
-  // Email takes precedence; when it is absent, an Argentine phone is the
-  // fallback identity. Empty values must never join unrelated anonymous leads.
+function groupLeadsByContact<T extends ContactGroupingLead>(leads: T[]): T[][] {
   const parent = leads.map((_, index) => index);
   const find = (index: number): number => {
     const current = parent[index]!;
@@ -73,9 +66,24 @@ adminLeadsRouter.get("/", async (request, response) => {
     if (email) { const previous = byEmail.get(email); if (previous !== undefined) join(index, previous); else byEmail.set(email, index); }
     if (phone) { const previous = byPhone.get(phone); if (previous !== undefined) join(index, previous); else byPhone.set(phone, index); }
   });
-  const groups = new Map<number, typeof leads>();
+  const groups = new Map<number, T[]>();
   leads.forEach((lead, index) => { const root = find(index); groups.set(root, [...(groups.get(root) || []), lead]); });
-  const contacts = [...groups.values()].map((group) => ({
+  return [...groups.values()];
+}
+
+export const adminLeadsRouter = Router();
+adminLeadsRouter.use(requireAuthentication, requireActiveUser);
+adminLeadsRouter.use(requirePermission("leads.view"));
+
+adminLeadsRouter.get("/", async (request, response) => {
+  const { page, limit, source, status, sortBy, sortOrder } = listSchema.parse(request.query);
+  const filter = { ...(source ? { source } : {}), ...(status ? { status } : {}) };
+  const sortFields = { fullName: "fullName", monthlyPrice: "quote.monthlyPrice", source: "source", status: "status", syncStatus: "highLevel.syncStatus", createdAt: "createdAt" } as const;
+  const sort = { [sortFields[sortBy]]: sortOrder === "asc" ? 1 : -1 } as Record<string, 1 | -1>;
+  const leads = await Lead.find(filter).sort(sort).lean();
+
+  // Each person remains a separate quote, grouped by email/phone for display.
+  const contacts = groupLeadsByContact(leads).map((group) => ({
     contactKey: String(group[0]!._id),
     latestLead: group[0]!,
     leads: group,
@@ -133,6 +141,14 @@ adminLeadsRouter.delete("/:leadId", requirePermission("leads.delete"), async (re
   const lead = await Lead.findByIdAndDelete(request.params.leadId);
   if (!lead) { response.status(404).json({ error: "Lead not found" }); return; }
   response.status(204).end();
+});
+
+adminLeadsRouter.delete("/:leadId/group", requirePermission("leads.delete"), async (request, response) => {
+  const leads = await Lead.find().lean();
+  const group = groupLeadsByContact(leads).find((items) => items.some((lead) => String(lead._id) === request.params.leadId));
+  if (!group) { response.status(404).json({ error: "Lead group not found" }); return; }
+  const result = await Lead.deleteMany({ _id: { $in: group.map((lead) => lead._id) } });
+  response.json({ deletedCount: result.deletedCount });
 });
 
 adminLeadsRouter.post("/:leadId/sync-highlevel", async (request, response) => {

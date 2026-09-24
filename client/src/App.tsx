@@ -739,6 +739,7 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
     { title: "HighLevel", key: "syncStatus", width: 130, sorter: true, sortOrder: sortBy === "syncStatus" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (_, lead) => <Tag color={lead.highLevel.syncStatus === "synced" || lead.highLevel.syncStatus === "contact_synced" ? "success" : lead.highLevel.syncStatus === "failed" ? "error" : "warning"}>{lead.highLevel.syncStatus === "synced" ? "Sincronizado" : lead.highLevel.syncStatus === "contact_synced" ? "Contacto creado" : lead.highLevel.syncStatus === "failed" ? "Con error" : "Pendiente"}</Tag> },
     { title: "Ingreso", dataIndex: "createdAt", key: "createdAt", width: 170, sorter: true, sortOrder: sortBy === "createdAt" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (date: string) => new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(date)) },
     { title: "Cotizaciones", key: "quotes", width: 120, align: "center", render: (_, lead) => <Tag color="blue">{lead.quotes.length}</Tag> },
+    { title: "", key: "delete-group", width: 64, align: "center", render: (_, lead) => canDelete && lead.quotes.length > 1 ? <Button danger type="text" title="Eliminar todas las cotizaciones de este contacto" aria-label={`Eliminar las ${lead.quotes.length} cotizaciones de ${lead.fullName}`} icon={<DeleteOutlined />} onClick={(event) => { event.stopPropagation(); deleteContactGroup(lead); }} /> : null },
   ];
 
   const quoteHistoryColumns: TableColumnsType<Lead> = [
@@ -782,6 +783,22 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
   const deleteLead = () => {
     if (!selectedLead) return;
     modal.confirm({ title: "Eliminar lead", content: `¿Querés eliminar la cotización de ${selectedLead.fullName}? Esta acción no elimina el contacto de HighLevel.`, okText: "Eliminar", cancelText: "Cancelar", okButtonProps: { danger: true }, onOk: async () => { await requestJson(`/admin/leads/${selectedLead._id}`, { method: "DELETE" }); setSelectedLead(null); await loadLeads(page); message.success("Cotización eliminada"); } });
+  };
+  const deleteContactGroup = (contact: LeadContactRow) => {
+    const quoteIds = contact.quotes.map((quote) => quote._id);
+    modal.confirm({
+      title: "Eliminar todas las cotizaciones",
+      content: <>¿Querés eliminar las <strong>{contact.quotes.length} cotizaciones</strong> agrupadas para <strong>{contact.fullName}</strong>? Esta acción no elimina el contacto de HighLevel.</>,
+      okText: `Eliminar ${contact.quotes.length} cotizaciones`,
+      cancelText: "Cancelar",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        const result = await requestJson<{ deletedCount: number }>(`/admin/leads/${contact._id}/group`, { method: "DELETE" });
+        if (selectedLead && quoteIds.includes(selectedLead._id)) setSelectedLead(null);
+        await loadLeads(page);
+        message.success(`Se eliminaron ${result.deletedCount} cotizaciones`);
+      },
+    });
   };
   const beginEditing = () => {
     if (!selectedLead) return;
@@ -1139,7 +1156,6 @@ function AnalyticsDashboard({ canManage }: { canManage: boolean }) {
       <Flex justify="space-between" align="center" wrap="wrap" gap={12}><Space wrap><Typography.Text type="secondary">{data.overview.period}</Typography.Text><Select style={{ minWidth: 280 }} value={campaignId || data.campaign?._id} options={campaigns.map(campaign => ({ value: campaign._id, label: campaign.name }))} onChange={value => setCampaignId(value)} /><Typography.Text type="secondary">Las opciones UTM se detectan automáticamente desde GA4.</Typography.Text></Space><Button onClick={() => { void load(); void loadCampaigns(); }}>Actualizar métricas</Button></Flex>
       <Flex align="end" gap={12} wrap="wrap"><div><Typography.Text type="secondary">Desde</Typography.Text><Input type="date" value={startDate} onChange={event => setStartDate(event.target.value)} style={{ display: "block", width: 170, marginTop: 4 }} /></div><div><Typography.Text type="secondary">Hasta</Typography.Text><Input type="date" value={endDate} onChange={event => setEndDate(event.target.value)} style={{ display: "block", width: 170, marginTop: 4 }} /></div><Button type={startDate && endDate ? "default" : "primary"} onClick={() => { setStartDate(""); setEndDate(""); }}>Últimos 30 días</Button><Button type={startDate && endDate ? "primary" : "default"} disabled={!startDate || !endDate} onClick={() => void load()}>Rango personalizado</Button></Flex>
       <Flex gap={16} wrap="wrap">{[["Usuarios activos", data.overview.activeUsers], ["Sesiones", data.overview.sessions], ["Vistas de página", data.overview.pageViews]].map(([title, value]) => <div key={title as string} style={{ minWidth: 205, flex: "1 1 205px", padding: "22px 24px", border: "1px solid #e4ebf4", borderRadius: 14, background: "#fff" }}><Statistic title={title as string} value={value as number} /></div>)}</Flex>
-      <Typography.Title level={4} style={{ marginBottom: -8 }}>Embudo · {data.campaign?.utmCampaign || data.campaign?.name}</Typography.Title>
       <section className="config-section"><Typography.Title level={4}>Embudo por source, campaña y pieza</Typography.Title><Typography.Text type="secondary">Cada gráfico usa los pasos configurados y muestra usuarios y porcentaje respecto de las visitas, desglosados por <code>utm_source</code>, <code>utm_campaign</code> y <code>utm_content</code>.</Typography.Text><AnalyticsUtmFunnels steps={data.overview.funnel} groups={data.overview.utmBreakdown} /><Divider /><Typography.Title level={4}>Detalle en tabla</Typography.Title><Table rowKey={(record) => `${record.source}-${record.campaign}-${record.content}`} size="small" columns={utmColumns} dataSource={data.overview.utmBreakdown} pagination={false} scroll={{ x: 1220 }} style={{ marginTop: 16 }} /></section>
       <section className="config-section"><Typography.Title level={4}>Canales de adquisición</Typography.Title><Table rowKey="name" size="small" columns={channelColumns} dataSource={data.overview.channels} pagination={false} /></section>
     </Space>;

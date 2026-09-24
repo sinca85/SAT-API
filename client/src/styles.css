@@ -239,6 +239,22 @@ input {
   align-items: center;
 }
 
+.faq-import {
+  display: grid;
+  gap: 16px;
+}
+
+.faq-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
 @media (max-width: 720px) {
   .admin-header {
     grid-template-columns: 1fr auto;
