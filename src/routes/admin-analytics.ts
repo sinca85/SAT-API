@@ -76,7 +76,6 @@ adminAnalyticsRouter.get("/campaigns", requirePermission("analytics.view"), asyn
     try {
       const names = await getAnalyticsCampaignNames(configuration.propertyId, defaultCampaign.landingPath);
       for (const name of names) {
-        if (configuredCampaigns.some((campaign) => campaign.slug === name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, ""))) continue;
         discoveredCampaigns.push({
           _id: `utm:${name}`,
           name: `UTM · ${name}`,
@@ -147,6 +146,7 @@ adminAnalyticsRouter.get("/overview", requirePermission("analytics.view"), async
   const configuration = await settings();
   await ensureDefaultCampaign();
   const campaignId = typeof request.query.campaignId === "string" ? request.query.campaignId : "";
+  const allCampaigns = campaignId === "all";
   const utmCampaign = campaignId.startsWith("utm:") ? campaignId.slice(4) : undefined;
   const dateRange = dateQuery.parse({
     startDate: typeof request.query.startDate === "string" ? request.query.startDate : undefined,
@@ -161,7 +161,7 @@ adminAnalyticsRouter.get("/overview", requirePermission("analytics.view"), async
     return;
   }
   await ensureDefaultCampaign();
-  const campaign = utmCampaign
+  const campaign = utmCampaign || allCampaigns
     ? await AnalyticsCampaign.findOne({ slug: "allianz-hogar", active: true }).lean()
     : (campaignId ? await AnalyticsCampaign.findById(campaignId) : null) ?? await AnalyticsCampaign.findOne({ active: true }).sort({ name: 1 });
   if (!campaign) { response.json({ status: "needs_campaign", settings: configuration, message: "Creá una campaña para ver su embudo." }); return; }
@@ -175,7 +175,12 @@ adminAnalyticsRouter.get("/overview", requirePermission("analytics.view"), async
   }
   try {
     const funnelConfig = utmCampaign ? await AnalyticsFunnelConfig.findOne({ utmCampaign }).lean() : null;
-    const selectedCampaign = utmCampaign ? {
+    const selectedCampaign = allCampaigns ? {
+      ...campaign,
+      _id: "all",
+      name: "Todas las campañas",
+      automatic: true,
+    } : utmCampaign ? {
       _id: `utm:${utmCampaign}`,
       name: `UTM · ${utmCampaign}`,
       utmCampaign,
