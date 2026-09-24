@@ -9,7 +9,7 @@ const listSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
   source: z.string().trim().optional(),
   status: z.enum(leadStatuses).optional(),
-  sortBy: z.enum(["fullName", "monthlyPrice", "source", "status", "syncStatus", "createdAt"]).default("createdAt"),
+  sortBy: z.enum(["fullName", "monthlyPrice", "utmCampaign", "status", "syncStatus", "createdAt"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
@@ -78,7 +78,7 @@ adminLeadsRouter.use(requirePermission("leads.view"));
 adminLeadsRouter.get("/", async (request, response) => {
   const { page, limit, source, status, sortBy, sortOrder } = listSchema.parse(request.query);
   const filter = { ...(source ? { source } : {}), ...(status ? { status } : {}) };
-  const sortFields = { fullName: "fullName", monthlyPrice: "quote.monthlyPrice", source: "source", status: "status", syncStatus: "highLevel.syncStatus", createdAt: "createdAt" } as const;
+  const sortFields = { fullName: "fullName", monthlyPrice: "quote.monthlyPrice", utmCampaign: "origin.utmCampaign", status: "status", syncStatus: "highLevel.syncStatus", createdAt: "createdAt" } as const;
   const sort = { [sortFields[sortBy]]: sortOrder === "asc" ? 1 : -1 } as Record<string, 1 | -1>;
   const leads = await Lead.find(filter).sort(sort).lean();
 
