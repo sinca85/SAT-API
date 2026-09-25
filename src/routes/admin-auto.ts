@@ -7,6 +7,7 @@ import { autoDefaults, GALENO_SANDBOX_URL, readAutoSettings } from "../services/
 import { createGalenoClient, GalenoError } from "../services/galeno-client.js";
 import { loadAdminCatalogs } from "../services/galeno-quotes.js";
 import { canStoreAutoSecrets, encryptAutoSecret } from "../services/auto-secrets.js";
+import { readGalenoRouteStatus } from "../services/galeno-route-status.js";
 
 const code = z.string().trim().max(80).regex(/^[a-zA-Z0-9_-]*$/, "Usá el código informado por Galeno");
 const settingsInput = z.object({
@@ -29,11 +30,12 @@ function serialize(entry: Record<string, unknown>) {
 export const adminAutoRouter = Router();
 adminAutoRouter.use(requireAuthentication, requireActiveUser, requirePermission("landings.view"));
 adminAutoRouter.get("/", async (_request, response) => {
-  const [entry, commercial] = await Promise.all([
+  const [entry, commercial, connectionStatus] = await Promise.all([
     AutoSettings.findOne({ slug: "auto" }).select("+passwordEncrypted +authorizationEncrypted").lean(),
     SiteConfig.findOne({ slug: "email-comercial", type: "email", active: true }).select("value").lean(),
+    readGalenoRouteStatus(),
   ]);
-  response.json({ settings: serialize(entry ?? defaults), commercialEmail: commercial?.value ?? "" });
+  response.json({ settings: serialize(entry ?? defaults), commercialEmail: commercial?.value ?? "", connectionStatus });
 });
 adminAutoRouter.patch("/", requirePermission("landings.manage"), async (request, response) => {
   const { password, basicAuthorization, ...input } = settingsInput.parse(request.body);
@@ -54,6 +56,6 @@ adminAutoRouter.post("/catalogs", requirePermission("landings.manage"), async (r
   response.json({ catalogs: await loadAdminCatalogs(createGalenoClient(settings), selection) });
 });
 adminAutoRouter.use((error: unknown, _request: import("express").Request, response: import("express").Response, next: import("express").NextFunction) => {
-  if (error instanceof GalenoError) { response.status(error.status).json({ error: error.message, code: error.code }); return; }
+  if (error instanceof GalenoError) { response.status(error.status).json({ error: error.message, code: error.code, ...(error.galeno !== undefined ? { galeno: error.galeno } : {}) }); return; }
   next(error);
 });

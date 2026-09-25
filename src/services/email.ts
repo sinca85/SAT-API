@@ -88,6 +88,27 @@ export async function sendEmailTest(to: string) {
   return await response.json() as { id?: string };
 }
 
+export async function sendGalenoRouteNotification(input: { to: string; route: "oracle" | "fixie"; detail?: string }) {
+  if (!env.RESEND_API_KEY || !env.RESEND_EMAIL_DOMAIN) return { sent: false, reason: "not_configured" as const };
+  const from = await sender();
+  const fallback = input.route === "fixie";
+  const title = fallback ? "Galeno está cotizando mediante Fixie" : "Se recuperó la conexión de Oracle con Galeno";
+  const detail = input.detail?.trim() || "Sin detalle adicional.";
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      from,
+      to: [input.to],
+      subject: `${fallback ? "Alerta" : "Recuperación"} · Conexión Galeno Auto`,
+      html: `<main style="font-family:Arial,sans-serif;max-width:560px;margin:32px auto;padding:28px;border:1px solid #dbe5f0;border-radius:14px;color:#17324d"><h1 style="margin:0 0 12px;color:#073ea7">${escapeHtml(title)}</h1><p>${fallback ? "La conexión principal de Oracle falló y la solicitud fue reenviada automáticamente mediante Fixie." : "Las solicitudes volvieron a salir mediante la IP fija de Oracle."}</p><p style="color:#52657a">${escapeHtml(detail)}</p></main>`,
+      text: `${title}. ${fallback ? "La solicitud fue reenviada automáticamente mediante Fixie." : "Las solicitudes volvieron a salir mediante Oracle."} ${detail}`,
+    }),
+  });
+  if (!response.ok) throw new Error(`Resend respondió ${response.status}: ${(await response.text()).slice(0, 300)}`);
+  return { sent: true, ...(await response.json() as { id?: string }) };
+}
+
 export async function sendHomeContractNotificationEmail(lead: HomeContractLead, configuredRecipient?: string) {
   const to = configuredRecipient?.trim() || await commercialRecipient();
   if (!to) return { sent: false, reason: "commercial_email_not_configured" as const };

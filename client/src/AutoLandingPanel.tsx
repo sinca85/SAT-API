@@ -9,16 +9,22 @@ type Settings = {
 };
 type Option = { value: string; label: string };
 type Catalogs = { plans: (Option & { producerCode: string })[]; people: Option[]; uses: Option[]; iva: Option[]; iibb: Option[]; billingModes: Option[]; paymentConditions: Option[]; paymentMethods: Option[] };
-type Response = { settings: Settings; commercialEmail?: string };
+type ConnectionStatus = { activeRoute?: "oracle" | "fixie" | "unconfigured"; switchedAt?: string; lastOracleSuccessAt?: string; lastFixieUseAt?: string; lastError?: string } | null;
+type Response = { settings: Settings; commercialEmail?: string; connectionStatus?: ConnectionStatus };
 async function readResponse<T>(response: globalThis.Response): Promise<T> {
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error === "Invalid request" ? "Revisá los valores ingresados." : data.error || "No se pudo completar la consulta.");
+  if (!response.ok) {
+    const message = data.error === "Invalid request" ? "Revisá los valores ingresados." : data.error || "No se pudo completar la consulta.";
+    const galeno = data.galeno === undefined ? "" : ` Respuesta de Galeno: ${typeof data.galeno === "string" ? data.galeno : JSON.stringify(data.galeno)}`;
+    throw new Error(`${message}${galeno}`);
+  }
   return data as T;
 }
 export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
   const { message } = App.useApp();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [commercialEmail, setCommercialEmail] = useState("");
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(null);
   const [password, setPassword] = useState("");
   const [basicAuthorization, setBasicAuthorization] = useState("");
   const [error, setError] = useState("");
@@ -32,7 +38,7 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true); setError("");
-    void fetch("/admin/auto", { credentials: "include", signal: controller.signal }).then(readResponse<Response>).then(data => { setSettings(data.settings); setCommercialEmail(data.commercialEmail ?? ""); }).catch((err: unknown) => { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "No se pudo cargar."); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    void fetch("/admin/auto", { credentials: "include", signal: controller.signal }).then(readResponse<Response>).then(data => { setSettings(data.settings); setCommercialEmail(data.commercialEmail ?? ""); setConnectionStatus(data.connectionStatus ?? null); }).catch((err: unknown) => { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "No se pudo cargar."); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [attempt]);
   const plan = settings?.commercialPlanCode;
@@ -69,6 +75,9 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
   return <Space orientation="vertical" size="large" style={{ width: "100%" }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}><div><Typography.Title level={4} style={{ margin: 0 }}>Seguro Auto Galeno</Typography.Title><Typography.Text type="secondary">Acceso y valores predeterminados del cotizador de Auto.</Typography.Text></div><Button href="https://cotizar.seguroatiempo.com/auto" target="_blank" rel="noreferrer">Ver landing</Button></div>
     <Alert type="info" showIcon title="Sandbox de Galeno · Solo cotización" description="Guardá el acceso, cargá las opciones de tu cuenta y elegí los valores que se usarán para todas las cotizaciones. Los resultados pertenecen al entorno de prueba." />
+    {connectionStatus?.activeRoute === "fixie" && <Alert type="warning" showIcon title="Cotizando mediante Fixie" description={`Oracle no respondió y el respaldo está activo desde ${connectionStatus.switchedAt ? new Date(connectionStatus.switchedAt).toLocaleString("es-AR") : "la última consulta"}. ${connectionStatus.lastError || ""}`} />}
+    {connectionStatus?.activeRoute === "oracle" && <Alert type="success" showIcon title="Conexión principal operativa" description="Las consultas de Galeno están saliendo mediante la IP fija de Oracle." />}
+    {!connectionStatus?.activeRoute || connectionStatus.activeRoute === "unconfigured" ? <Alert type="info" showIcon title="Ruta de Galeno todavía sin verificar" description="El estado se actualizará con la próxima consulta al sandbox." /> : null}
     <Card title="Acceso al API de Galeno"><Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Text>Ambiente: <strong>Pruebas (sandbox)</strong></Typography.Text>
       <label>Usuario de Galeno<Input disabled={disabled} autoComplete="off" value={settings.username} onChange={event => patch({ username: event.target.value })} /></label>

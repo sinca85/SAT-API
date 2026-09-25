@@ -7,6 +7,7 @@ import { AnalyticsSettings } from "../src/models/analytics-settings.js";
 import { adminAutoRouter } from "../src/routes/admin-auto.js";
 import { AutoSettings } from "../src/models/auto-settings.js";
 import { SiteConfig } from "../src/models/site-config.js";
+import { GalenoRouteStatus } from "../src/models/galeno-route-status.js";
 import { encryptAutoSecret } from "../src/services/auto-secrets.js";
 
 test("Auto settings: permissions, validation, encrypted secrets and isolated persistence", async () => {
@@ -18,11 +19,13 @@ test("Auto settings: permissions, validation, encrypted secrets and isolated per
   const originalUpdate = AutoSettings.findOneAndUpdate;
   const originalConfig = SiteConfig.findOne;
   const originalAnalytics = AnalyticsSettings.findOne;
+  const originalRouteStatus = GalenoRouteStatus.findOne;
   let analyticsReads = 0;
   const query = (value: unknown) => ({ select: () => ({ lean: async () => value }) });
   AutoSettings.findOne = (() => query(stored)) as unknown as typeof originalFind;
   AnalyticsSettings.findOne = (() => { analyticsReads++; return query({ measurementId: "G-TESTAUTO" }); }) as unknown as typeof originalAnalytics;
   SiteConfig.findOne = (() => query({ value: "commercial@example.com" })) as unknown as typeof originalConfig;
+  GalenoRouteStatus.findOne = (() => query(null)) as unknown as typeof originalRouteStatus;
   AutoSettings.findOneAndUpdate = ((filter: unknown, update: { $set: Record<string, unknown> }) => {
     assert.deepEqual(filter, { slug: "auto" });
     writes++; stored = { ...stored, ...update.$set, slug: "auto" };
@@ -94,7 +97,7 @@ test("Auto settings: permissions, validation, encrypted secrets and isolated per
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-    AutoSettings.findOne = originalFind; AutoSettings.findOneAndUpdate = originalUpdate; SiteConfig.findOne = originalConfig; AnalyticsSettings.findOne = originalAnalytics;
+    AutoSettings.findOne = originalFind; AutoSettings.findOneAndUpdate = originalUpdate; SiteConfig.findOne = originalConfig; AnalyticsSettings.findOne = originalAnalytics; GalenoRouteStatus.findOne = originalRouteStatus;
     if (previousKey === undefined) delete process.env.GALENO_SETTINGS_ENCRYPTION_KEY; else process.env.GALENO_SETTINGS_ENCRYPTION_KEY = previousKey;
   }
 });

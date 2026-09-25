@@ -4,9 +4,10 @@ import { GalenoSession } from "../models/galeno-session.js";
 import { canStoreAutoSecrets, decryptAutoSecret, encryptAutoSecret } from "./auto-secrets.js";
 import { GALENO_SANDBOX_URL, type AutoConfiguration } from "./auto-settings.js";
 import { sandboxBasicAuthorization } from "./galeno-sandbox.js";
+import { recordGalenoRoute, type GalenoRoute } from "./galeno-route-status.js";
 
 export class GalenoError extends Error {
-  constructor(public code: string, message: string, public status = 502) { super(message); }
+  constructor(public code: string, message: string, public status = 502, public galeno?: unknown) { super(message); }
 }
 export type TokenStore = {
   get(key: string, fingerprint: string): Promise<string | null>;
@@ -59,11 +60,47 @@ function fixieDispatcher(value: string): ProxyAgent {
   return proxyAgent;
 }
 
-export function createGalenoTransport(fixieUrl = process.env.FIXIE_URL, directFetch?: typeof fetch): GalenoTransport {
-  if (!fixieUrl) return (url, init) => (directFetch ?? fetch)(url, init);
-  const dispatcher = fixieDispatcher(fixieUrl);
-  if (directFetch) return (url, init) => directFetch(url, { ...init, dispatcher } as ProxyRequestInit);
-  return (url, init) => undiciFetch(url, { ...init, dispatcher } as Parameters<typeof undiciFetch>[1]) as unknown as Promise<Response>;
+export function createGalenoTransport(
+  fixieUrl = process.env.FIXIE_URL,
+  directFetch?: typeof fetch,
+  relayUrl = process.env.GALENO_ORACLE_RELAY_URL,
+  relayToken = process.env.GALENO_ORACLE_RELAY_TOKEN,
+  reportRoute: (route: GalenoRoute, detail?: string) => Promise<void> = recordGalenoRoute,
+): GalenoTransport {
+  const request: GalenoTransport = directFetch
+    ? (url, init) => directFetch(url, init)
+    : (url, init) => undiciFetch(url, init as Parameters<typeof undiciFetch>[1]) as unknown as Promise<Response>;
+  let fixie: GalenoTransport | undefined;
+  if (fixieUrl) {
+    const dispatcher = fixieDispatcher(fixieUrl);
+    fixie = directFetch
+      ? (url, init) => directFetch(url, { ...init, dispatcher } as ProxyRequestInit)
+      : (url, init) => undiciFetch(url, { ...init, dispatcher } as Parameters<typeof undiciFetch>[1]) as unknown as Promise<Response>;
+  }
+  if (!relayUrl && !relayToken) return fixie ?? ((url, init) => request(url, init));
+  let relay: URL;
+  try { relay = new URL(relayUrl!); }
+  catch { throw new GalenoError("relay_configuration_invalid", "La conexión principal de Oracle no está configurada correctamente.", 503); }
+  if (relay.protocol !== "https:" || relay.pathname !== "/" || relay.search || relay.hash || !relayToken || relayToken.length < 32) {
+    throw new GalenoError("relay_configuration_invalid", "La conexión principal de Oracle no está configurada correctamente.", 503);
+  }
+  return async (url, init) => {
+    const upstream = new URL(String(url));
+    if (upstream.origin !== new URL(GALENO_SANDBOX_URL).origin || !upstream.pathname.startsWith("/WS-Seguros-desa/")) throw new GalenoError("invalid_endpoint", "Servicio no habilitado.", 400);
+    const relayTarget = new URL(`/relay${upstream.pathname}${upstream.search}`, relay);
+    try {
+      const response = await request(relayTarget.toString(), { ...init, headers: { ...Object.fromEntries(new Headers(init.headers).entries()), "x-relay-token": relayToken } });
+      if (response.headers.get("x-galeno-relay-status") !== "forwarded") throw new Error(`relay_${response.status}`);
+      await reportRoute("oracle");
+      return response;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message.slice(0, 120) : "unknown_error";
+      console.error("Galeno Oracle relay failed; using Fixie", { errorName: error instanceof Error ? error.name : "UnknownError" });
+      if (!fixie) throw new GalenoError("oracle_unavailable", "Oracle no respondió y Fixie no está configurado.", 503);
+      await reportRoute("fixie", detail);
+      return await fixie(url, init);
+    }
+  };
 }
 
 function safeTransportError(error: unknown) {
@@ -83,12 +120,12 @@ function authenticationFailure(data: unknown) {
     ? String((data as { error_description?: unknown }).error_description ?? "").trim().toLocaleLowerCase("es")
     : "";
   if (description.includes("usuario no habilitado")) {
-    return new GalenoError("galeno_user_not_enabled", "Galeno respondió: usuario no habilitado. Pediles que asocien al usuario del sandbox las dos IP salientes de Fixie.", 502);
+    return new GalenoError("galeno_user_not_enabled", "Galeno respondió: usuario no habilitado. Pediles que asocien al usuario del sandbox la IP configurada.", 502, data);
   }
   if (description.includes("usuario no registrado")) {
-    return new GalenoError("galeno_user_not_registered", "Galeno respondió: usuario no registrado. Revisá el usuario y la contraseña del sandbox.", 502);
+    return new GalenoError("galeno_user_not_registered", "Galeno respondió: usuario no registrado. Revisá el usuario y la contraseña del sandbox.", 502, data);
   }
-  return new GalenoError("authentication_failed", "Galeno no autorizó el acceso. Revisá usuario, contraseña, autorización del sandbox e IP habilitada.", 502);
+  return new GalenoError("authentication_failed", "Galeno no autorizó el acceso. Revisá usuario, contraseña, autorización del sandbox e IP habilitada.", 502, data);
 }
 
 export function createGalenoClient(settings: AutoConfiguration, transport: GalenoTransport = createGalenoTransport(), tokens: TokenStore = databaseTokens) {
@@ -139,9 +176,9 @@ export function createGalenoClient(settings: AutoConfiguration, transport: Galen
       const accessToken = await token();
       const { response, data } = await jsonRequest(path, { method: body ? "POST" : "GET", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
       if (response.status === 401) { await tokens.invalidate(key, accessToken); if (attempt === 0) continue; }
-      if (!response.ok || data === null) throw new GalenoError("service_error", "Galeno no pudo completar la consulta. Revisá la configuración o intentá nuevamente.");
+      if (!response.ok || data === null) throw new GalenoError("service_error", "Galeno no pudo completar la consulta. Revisá la configuración o intentá nuevamente.", 502, data);
       const result = data as { errorCode?: unknown; codigo?: unknown };
-      if (result.errorCode || (result.codigo !== undefined && String(result.codigo) !== "0" && !Array.isArray(data))) throw new GalenoError("rejected", "Galeno rechazó la consulta. Revisá el plan y los parámetros configurados.");
+      if (result.errorCode || (result.codigo !== undefined && String(result.codigo) !== "0" && !Array.isArray(data))) throw new GalenoError("rejected", "Galeno rechazó la consulta. Revisá el plan y los parámetros configurados.", 502, data);
       return data;
     }
     throw new GalenoError("authentication_failed", "No se pudo mantener la sesión con Galeno.");

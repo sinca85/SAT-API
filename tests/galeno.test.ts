@@ -17,7 +17,7 @@ function memoryTokens(): TokenStore {
     async invalidate(_key, token) { if (cached === token) cached = ""; },
   };
 }
-const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
+const json = (value: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json", ...headers } });
 
 test("Fixie is applied only by the Galeno transport and invalid proxy credentials are rejected", async () => {
   let receivedInit: RequestInit | undefined;
@@ -27,6 +27,29 @@ test("Fixie is applied only by the Galeno transport and invalid proxy credential
   await createGalenoTransport(undefined, directFetch)(`${autoDefaults.baseUrl}/health`, { method: "GET" });
   assert.equal((receivedInit as RequestInit & { dispatcher?: unknown }).dispatcher, undefined);
   assert.throws(() => createGalenoTransport("http://proxy.example:8080", directFetch), /no está configurada/);
+});
+
+test("Oracle relay is primary and Fixie is used only when the relay is unavailable", async () => {
+  const routes: string[] = [];
+  const calls: string[] = [];
+  let relayAvailable = true;
+  const transportFetch: typeof fetch = async (url, init) => {
+    calls.push(String(url));
+    if (String(url).startsWith("https://147.15.21.186")) {
+      assert.equal(new Headers(init?.headers).get("x-relay-token"), "r".repeat(32));
+      return json({ ok: true }, relayAvailable ? 200 : 502, relayAvailable ? { "x-galeno-relay-status": "forwarded" } : { "x-galeno-relay-status": "unavailable" });
+    }
+    assert.ok((init as RequestInit & { dispatcher?: unknown }).dispatcher);
+    return json({ ok: true });
+  };
+  const transport = createGalenoTransport("http://user:password@proxy.example:8080", transportFetch, "https://147.15.21.186", "r".repeat(32), async route => { routes.push(route); });
+  await transport(`${autoDefaults.baseUrl}/api/cotizadores/auto/marcas?rama=4`, { method: "GET" });
+  assert.deepEqual(routes, ["oracle"]);
+  assert.equal(calls.length, 1);
+  relayAvailable = false;
+  await transport(`${autoDefaults.baseUrl}/api/cotizadores/auto/marcas?rama=4`, { method: "GET" });
+  assert.deepEqual(routes, ["oracle", "fixie"]);
+  assert.equal(calls.length, 3);
 });
 
 test("Galeno shares tokens, refreshes once after 401 and sends credentials only to sandbox", async () => {
@@ -65,7 +88,7 @@ test("Authentication and network failures are sanitized; no automatic quote retr
 
 test("Known Galeno authentication failures return actionable diagnostics", async () => {
   const disabled = createGalenoClient(settings, async () => json({ error_description: "Usuario no habilitado" }, 400), memoryTokens());
-  await assert.rejects(() => disabled("/api/cotizadores/auto/marcas?rama=4"), (error: Error) => error instanceof GalenoError && error.code === "galeno_user_not_enabled" && error.message.includes("Fixie"));
+  await assert.rejects(() => disabled("/api/cotizadores/auto/marcas?rama=4"), (error: Error) => error instanceof GalenoError && error.code === "galeno_user_not_enabled" && error.message.includes("IP configurada"));
 
   const unknown = createGalenoClient(settings, async () => json({ error_description: "Usuario no registrado en el sistema" }, 400), memoryTokens());
   await assert.rejects(() => unknown("/api/cotizadores/auto/marcas?rama=4"), (error: Error) => error instanceof GalenoError && error.code === "galeno_user_not_registered" && error.message.includes("contraseña"));
