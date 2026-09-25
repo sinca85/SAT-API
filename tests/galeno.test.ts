@@ -4,6 +4,7 @@ import { autoDefaults, type AutoConfiguration } from "../src/services/auto-setti
 import { encryptAutoSecret } from "../src/services/auto-secrets.js";
 import { createGalenoClient, createGalenoTransport, GalenoError, type TokenStore, type GalenoClient } from "../src/services/galeno-client.js";
 import { quoteInput, quoteAuto, normalizeQuote } from "../src/services/galeno-quotes.js";
+import { demoCatalog, demoQuote } from "../src/services/auto-demo.js";
 
 process.env.GALENO_SETTINGS_ENCRYPTION_KEY = "cd".repeat(32);
 const settings: AutoConfiguration = { ...autoDefaults, username: "test-user", passwordEncrypted: encryptAutoSecret("test-password"), producerCode: "987", commercialPlanCode: "PLAN", billingModeCode: "AN", paymentConditionCode: "12", paymentMethodCode: "3", personTypeCode: "2", useTypeCode: "2", ivaCode: "1", iibbCode: "X" };
@@ -141,4 +142,21 @@ test("Handles empty/restricted/error quotes without fabricated prices", () => {
   assert.equal(normalizeQuote({ ...quote, excepciones: [{ item: 0, estado: "No Permitido", detalle: "Vigencia" }] }).coverages.length, 0);
   assert.throws(() => normalizeQuote({ errores: [{ descripcion: "invalid" }] }), /no pudo cotizar/);
   assert.throws(() => normalizeQuote({ coberturas: [{ premio: -1 }] }), /incompleta/);
+});
+
+test("Demo mode provides a complete quote flow without a Galeno client", () => {
+  const brands = demoCatalog({ kind: "brands" });
+  const models = demoCatalog({ kind: "models", brand: "toyota" });
+  const years = demoCatalog({ kind: "years", brand: "toyota", model: "corolla" });
+  const versions = demoCatalog({ kind: "versions", brand: "toyota", model: "corolla", year: "2024" });
+  const localities = demoCatalog({ kind: "locations", postalCode: "5000" });
+  assert.ok(brands.some(item => item.value === "toyota"));
+  assert.equal(models[0]?.label, "Corolla");
+  assert.ok(years.some(item => item.value === "2024"));
+  assert.ok(versions.length >= 3);
+  assert.equal(localities[0]?.value, "5000-1");
+  const result = demoQuote(quoteInput.parse({ ...input, brand: "toyota", model: "corolla", year: "2024", version: versions[0]!.value, locality: localities[0]!.value }));
+  assert.match(result.requestId, /^DEMO-/);
+  assert.equal(result.coverages.length, 3);
+  assert.ok(result.coverages.every(item => item.firstInstallment > 0));
 });

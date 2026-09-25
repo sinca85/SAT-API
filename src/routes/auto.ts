@@ -5,6 +5,7 @@ import { readAutoSettings, quoteConfigured } from "../services/auto-settings.js"
 import { createGalenoClient, GalenoError } from "../services/galeno-client.js";
 import { canStoreAutoSecrets } from "../services/auto-secrets.js";
 import { locations, options, part, quoteAuto, quoteInput, versions } from "../services/galeno-quotes.js";
+import { autoDemoEnabled, demoCatalog, demoQuote } from "../services/auto-demo.js";
 
 export const autoRouter = Router();
 autoRouter.use((_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
@@ -23,13 +24,15 @@ autoRouter.get("/config", async (_request, response) => {
   const settings = await readAutoSettings();
   const analytics = settings.analyticsEnabled ? await AnalyticsSettings.findOne({ key: "default" }).select("measurementId").lean() : null;
   const measurementId = analytics?.measurementId || "G-WSQ0X7LXTC";
-  response.json({ environment: "test", ready: quoteConfigured(settings) && canStoreAutoSecrets(), personType: settings.personTypeCode,
+  const demo = autoDemoEnabled();
+  response.json({ environment: "test", mode: demo ? "demo" : "galeno", ready: demo || (quoteConfigured(settings) && canStoreAutoSecrets()), personType: settings.personTypeCode,
     analytics: { enabled: settings.analyticsEnabled === true, ...(settings.analyticsEnabled ? { measurementId, metaPixelId: "1378259864357969" } : {}) },
   });
 });
 const query = z.object({ kind: z.enum(["brands", "models", "years", "versions", "locations"]), brand: z.string().min(1).max(40).optional(), model: z.string().min(1).max(120).optional(), year: z.string().regex(/^\d{4}$/).optional(), postalCode: z.string().regex(/^\d{4}$/).optional() }).strict();
 autoRouter.get("/catalog", async (request, response) => {
   const input = query.parse(request.query);
+  if (autoDemoEnabled()) { response.json({ options: demoCatalog(input) }); return; }
   const client = createGalenoClient(await readAutoSettings());
   if (input.kind === "brands") { response.json({ options: options(await client("/api/cotizadores/auto/marcas?rama=4")) }); return; }
   if (input.kind === "locations" && input.postalCode) { response.json({ options: await locations(client, input.postalCode) }); return; }
@@ -41,6 +44,7 @@ autoRouter.get("/catalog", async (request, response) => {
 autoRouter.post("/quote", async (request, response) => {
   // Strict public schema: the visitor cannot override producer, payment, fiscal or person defaults.
   const input = quoteInput.parse(request.body);
+  if (autoDemoEnabled()) { response.json({ quote: demoQuote(input) }); return; }
   const settings = await readAutoSettings();
   response.json({ quote: await quoteAuto(createGalenoClient(settings), settings, input) });
 });
