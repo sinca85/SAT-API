@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { ProxyAgent, type Dispatcher } from "undici";
+import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from "undici";
 import { GalenoSession } from "../models/galeno-session.js";
 import { canStoreAutoSecrets, decryptAutoSecret, encryptAutoSecret } from "./auto-secrets.js";
 import { GALENO_SANDBOX_URL, type AutoConfiguration } from "./auto-settings.js";
@@ -59,10 +59,11 @@ function fixieDispatcher(value: string): ProxyAgent {
   return proxyAgent;
 }
 
-export function createGalenoTransport(fixieUrl = process.env.FIXIE_URL, directFetch: typeof fetch = fetch): GalenoTransport {
-  if (!fixieUrl) return (url, init) => directFetch(url, init);
+export function createGalenoTransport(fixieUrl = process.env.FIXIE_URL, directFetch?: typeof fetch): GalenoTransport {
+  if (!fixieUrl) return (url, init) => (directFetch ?? fetch)(url, init);
   const dispatcher = fixieDispatcher(fixieUrl);
-  return (url, init) => directFetch(url, { ...init, dispatcher } as ProxyRequestInit);
+  if (directFetch) return (url, init) => directFetch(url, { ...init, dispatcher } as ProxyRequestInit);
+  return (url, init) => undiciFetch(url, { ...init, dispatcher } as Parameters<typeof undiciFetch>[1]) as unknown as Promise<Response>;
 }
 
 function safeTransportError(error: unknown) {
