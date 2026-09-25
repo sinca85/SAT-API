@@ -65,6 +65,18 @@ export function createGalenoTransport(fixieUrl = process.env.FIXIE_URL, directFe
   return (url, init) => directFetch(url, { ...init, dispatcher } as ProxyRequestInit);
 }
 
+function safeTransportError(error: unknown) {
+  const cause = error instanceof Error && error.cause && typeof error.cause === "object"
+    ? error.cause as { code?: unknown; name?: unknown }
+    : undefined;
+  return {
+    proxyConfigured: Boolean(process.env.FIXIE_URL),
+    errorName: error instanceof Error ? error.name : "UnknownError",
+    causeName: typeof cause?.name === "string" ? cause.name : undefined,
+    causeCode: typeof cause?.code === "string" ? cause.code : undefined,
+  };
+}
+
 export function createGalenoClient(settings: AutoConfiguration, transport: GalenoTransport = createGalenoTransport(), tokens: TokenStore = databaseTokens) {
   // Only the documented sandbox is permitted. Never send credentials to a configurable host.
   if (settings.environment !== "test" || settings.baseUrl !== GALENO_SANDBOX_URL) throw new GalenoError("sandbox_only", "Esta integración está habilitada únicamente para el sandbox de Galeno.", 503);
@@ -82,7 +94,10 @@ export function createGalenoClient(settings: AutoConfiguration, transport: Galen
       const response = await transport(`${GALENO_SANDBOX_URL}${path}`, { ...init, signal: AbortSignal.timeout(15000), redirect: "error" });
       const data: unknown = await response.json().catch(() => null);
       return { response, data };
-    } catch { throw new GalenoError("unavailable", "No pudimos comunicarnos con Galeno. Intentá nuevamente en unos minutos.", 503); }
+    } catch (error) {
+      console.error("Galeno transport failed", safeTransportError(error));
+      throw new GalenoError("unavailable", "No pudimos comunicarnos con Galeno. Intentá nuevamente en unos minutos.", 503);
+    }
   }
   async function token() {
     const deadline = Date.now() + 28000;
