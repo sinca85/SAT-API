@@ -78,6 +78,19 @@ function safeTransportError(error: unknown) {
   };
 }
 
+function authenticationFailure(data: unknown) {
+  const description = data && typeof data === "object" && "error_description" in data
+    ? String((data as { error_description?: unknown }).error_description ?? "").trim().toLocaleLowerCase("es")
+    : "";
+  if (description.includes("usuario no habilitado")) {
+    return new GalenoError("galeno_user_not_enabled", "Galeno respondió: usuario no habilitado. Pediles que asocien al usuario del sandbox las dos IP salientes de Fixie.", 502);
+  }
+  if (description.includes("usuario no registrado")) {
+    return new GalenoError("galeno_user_not_registered", "Galeno respondió: usuario no registrado. Revisá el usuario y la contraseña del sandbox.", 502);
+  }
+  return new GalenoError("authentication_failed", "Galeno no autorizó el acceso. Revisá usuario, contraseña, autorización del sandbox e IP habilitada.", 502);
+}
+
 export function createGalenoClient(settings: AutoConfiguration, transport: GalenoTransport = createGalenoTransport(), tokens: TokenStore = databaseTokens) {
   // Only the documented sandbox is permitted. Never send credentials to a configurable host.
   if (settings.environment !== "test" || settings.baseUrl !== GALENO_SANDBOX_URL) throw new GalenoError("sandbox_only", "Esta integración está habilitada únicamente para el sandbox de Galeno.", 503);
@@ -112,7 +125,7 @@ export function createGalenoClient(settings: AutoConfiguration, transport: Galen
         if (existing) return existing;
         const { response, data } = await jsonRequest("/seguridad/token", { method: "POST", headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "password", username: settings.username, password }).toString() });
         const result = data as { access_token?: unknown; expires_in?: unknown } | null;
-        if (!response.ok || typeof result?.access_token !== "string") throw new GalenoError("authentication_failed", "Galeno no autorizó el acceso. Revisá usuario, contraseña, autorización del sandbox e IP habilitada.", 502);
+        if (!response.ok || typeof result?.access_token !== "string") throw authenticationFailure(data);
         const seconds = Number(result.expires_in);
         await tokens.save(key, owner, fingerprint, result.access_token, Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, 86400) : 300);
         return result.access_token;

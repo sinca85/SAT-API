@@ -63,6 +63,14 @@ test("Authentication and network failures are sanitized; no automatic quote retr
   assert.equal(requests, 1);
 });
 
+test("Known Galeno authentication failures return actionable diagnostics", async () => {
+  const disabled = createGalenoClient(settings, async () => json({ error_description: "Usuario no habilitado" }, 400), memoryTokens());
+  await assert.rejects(() => disabled("/api/cotizadores/auto/marcas?rama=4"), (error: Error) => error instanceof GalenoError && error.code === "galeno_user_not_enabled" && error.message.includes("Fixie"));
+
+  const unknown = createGalenoClient(settings, async () => json({ error_description: "Usuario no registrado en el sistema" }, 400), memoryTokens());
+  await assert.rejects(() => unknown("/api/cotizadores/auto/marcas?rama=4"), (error: Error) => error instanceof GalenoError && error.code === "galeno_user_not_registered" && error.message.includes("contraseña"));
+});
+
 const quote = { solicitud: 101, descripcionVehiculo: "CHEVROLET AGILE LT 2016", sumaAsegurada: 8500000, coberturas: [
   { item: 1, cobertura: "C", descripcionCobertura: "TERCEROS COMPLETO", prima: 1, premio: 100000, importeCuota1: 10000, importeRestoCuotas: 9000, listaAdicionales: ["Robo e incendio", ""], franquicia: "" },
   { item: 2, cobertura: "D", descripcionCobertura: "TODO RIESGO", premio: 200000, importeCuota1: 20000, importeRestoCuotas: 19000, listaAdicionales: [], franquicia: "Según plan" },
