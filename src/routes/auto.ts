@@ -6,6 +6,7 @@ import { createGalenoClient, GalenoError } from "../services/galeno-client.js";
 import { canStoreAutoSecrets } from "../services/auto-secrets.js";
 import { locations, options, part, quoteAuto, quoteInput, versions } from "../services/galeno-quotes.js";
 import { autoDemoEnabled, demoCatalog, demoQuote } from "../services/auto-demo.js";
+import { Faq } from "../models/faq.js";
 
 export const autoRouter = Router();
 autoRouter.use((_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
@@ -28,6 +29,14 @@ autoRouter.get("/config", async (_request, response) => {
   response.json({ environment: "test", mode: demo ? "demo" : "galeno", ready: demo || (quoteConfigured(settings) && canStoreAutoSecrets()), personType: settings.personTypeCode,
     analytics: { enabled: settings.analyticsEnabled === true, ...(settings.analyticsEnabled ? { measurementId, metaPixelId: "1378259864357969" } : {}) },
   });
+});
+autoRouter.get("/faqs", async (_request, response) => {
+  const faqs = await Faq.find({ insurer: "galeno", product: "auto", active: true })
+    .select("question answer")
+    .sort({ createdAt: 1 })
+    .limit(30)
+    .lean();
+  response.json({ faqs });
 });
 const query = z.object({ kind: z.enum(["brands", "models", "years", "versions", "locations"]), brand: z.string().min(1).max(40).optional(), model: z.string().min(1).max(120).optional(), year: z.string().regex(/^\d{4}$/).optional(), postalCode: z.string().regex(/^\d{4}$/).optional() }).strict();
 autoRouter.get("/catalog", async (request, response) => {
