@@ -6,6 +6,7 @@ import { AnalyticsCampaign } from "../models/analytics-campaign.js";
 import { AnalyticsFunnelConfig } from "../models/analytics-funnel-config.js";
 import { env } from "../config/env.js";
 import { getAnalyticsCampaignEvents, getAnalyticsCampaignNames, getAnalyticsOverview } from "../services/google-analytics.js";
+import { getMetaAdsOverview, testMetaAdsConnection } from "../services/meta-ads.js";
 
 const defaultMeasurementId = "G-WSQ0X7LXTC";
 const settingsInput = z.object({
@@ -152,6 +153,29 @@ adminAnalyticsRouter.delete("/campaigns/:campaignId", requirePermission("analyti
   const campaign = await AnalyticsCampaign.findByIdAndDelete(request.params.campaignId);
   if (!campaign) { response.status(404).json({ error: "Campaña no encontrada" }); return; }
   response.status(204).end();
+});
+
+adminAnalyticsRouter.get("/meta/overview", requirePermission("analytics.view"), async (request, response) => {
+  const dateRange = dateQuery.parse({
+    startDate: typeof request.query.startDate === "string" ? request.query.startDate : undefined,
+    endDate: typeof request.query.endDate === "string" ? request.query.endDate : undefined,
+  });
+  if (Boolean(dateRange.startDate) !== Boolean(dateRange.endDate) || (dateRange.startDate && dateRange.endDate && dateRange.startDate > dateRange.endDate)) {
+    response.status(400).json({ error: "Indicá un rango de fechas válido." }); return;
+  }
+  if (!env.META_ACCESS_TOKEN || !env.META_AD_ACCOUNT_ID) {
+    response.json({ status: "needs_credentials", message: "Faltan META_ACCESS_TOKEN o META_AD_ACCOUNT_ID en Vercel." }); return;
+  }
+  try { response.json({ status: "connected", overview: await getMetaAdsOverview(dateRange) }); }
+  catch (error) { response.json({ status: "connection_error", message: error instanceof Error ? error.message : "No se pudo consultar Meta Ads." }); }
+});
+
+adminAnalyticsRouter.post("/meta/test", requirePermission("analytics.view"), async (_request, response) => {
+  if (!env.META_ACCESS_TOKEN || !env.META_AD_ACCOUNT_ID) {
+    response.status(400).json({ error: "Faltan META_ACCESS_TOKEN o META_AD_ACCOUNT_ID en Vercel." }); return;
+  }
+  try { response.json({ status: "connected", account: await testMetaAdsConnection() }); }
+  catch (error) { response.status(502).json({ error: error instanceof Error ? error.message : "No se pudo conectar con Meta Ads." }); }
 });
 
 adminAnalyticsRouter.get("/overview", requirePermission("analytics.view"), async (request, response) => {

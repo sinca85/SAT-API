@@ -11,6 +11,11 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_ANALYTICS_SERVICE_ACCOUNT_EMAIL: z.string().email().optional(),
   GOOGLE_ANALYTICS_SERVICE_ACCOUNT_PRIVATE_KEY: z.string().min(1).optional(),
+  META_APP_ID: z.string().trim().min(1).optional(),
+  META_APP_SECRET: z.string().trim().min(1).optional(),
+  META_ACCESS_TOKEN: z.string().trim().min(1).optional(),
+  META_AD_ACCOUNT_ID: z.string().trim().min(1).optional(),
+  META_GRAPH_API_VERSION: z.string().trim().regex(/^v\d+\.\d+$/).default("v23.0"),
   GOOGLE_CALLBACK_URL: z
     .string()
     .url()
