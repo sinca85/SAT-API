@@ -4,7 +4,7 @@ import { requireActiveUser, requireAuthentication, requirePermission } from "../
 import { AutoSettings } from "../models/auto-settings.js";
 import { SiteConfig } from "../models/site-config.js";
 import { autoDefaults, GALENO_SANDBOX_URL, readAutoSettings } from "../services/auto-settings.js";
-import { createGalenoClient, GalenoError } from "../services/galeno-client.js";
+import { createGalenoClient, createGalenoTransport, GalenoError, type TokenStore } from "../services/galeno-client.js";
 import { loadAdminCatalogs } from "../services/galeno-quotes.js";
 import { canStoreAutoSecrets, encryptAutoSecret } from "../services/auto-secrets.js";
 import { readGalenoRouteStatus } from "../services/galeno-route-status.js";
@@ -54,6 +54,30 @@ adminAutoRouter.post("/catalogs", requirePermission("landings.manage"), async (r
   const selection = z.object({ commercialPlanCode: code.optional(), billingModeCode: code.optional() }).strict().parse(request.body);
   const settings = await readAutoSettings();
   response.json({ catalogs: await loadAdminCatalogs(createGalenoClient(settings), selection) });
+});
+
+adminAutoRouter.post("/oracle-test", requirePermission("landings.manage"), async (_request, response) => {
+  const relayUrl = process.env.GALENO_ORACLE_TEST_RELAY_URL;
+  const relayToken = process.env.GALENO_ORACLE_TEST_RELAY_TOKEN;
+  if (!relayUrl || !relayToken) {
+    response.status(503).json({ error: "Falta configurar el relay de diagnóstico de Oracle.", code: "oracle_test_not_configured" }); return;
+  }
+  // Keep this probe isolated: no Fixie fallback and no shared token cache, so both
+  // authentication and the catalog request must travel through Oracle.
+  let cachedToken: string | null = null;
+  const tokens: TokenStore = {
+    async get() { return cachedToken; },
+    async acquire() { return true; },
+    async save(_key, _owner, _fingerprint, token) { cachedToken = token; },
+    async release() {},
+    async invalidate() { cachedToken = null; },
+  };
+  const transport = createGalenoTransport("", undefined, relayUrl, relayToken, async () => {});
+  const client = createGalenoClient(await readAutoSettings(), transport, tokens);
+  const raw = await client("/api/administracion/usuario/planes/comerciales?rama=4");
+  const list = Array.isArray(raw) ? raw : (raw as { lista?: unknown } | null)?.lista;
+  if (!Array.isArray(list)) throw new GalenoError("invalid_response", "Galeno devolvió un catálogo no válido.");
+  response.json({ ok: true, route: "oracle", environment: "sandbox", catalog: "planes_comerciales", records: list.length });
 });
 adminAutoRouter.use((error: unknown, _request: import("express").Request, response: import("express").Response, next: import("express").NextFunction) => {
   if (error instanceof GalenoError) { response.status(error.status).json({ error: error.message, code: error.code, ...(error.galeno !== undefined ? { galeno: error.galeno } : {}) }); return; }
