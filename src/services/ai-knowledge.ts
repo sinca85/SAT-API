@@ -6,6 +6,24 @@ import { env } from "../config/env.js";
 const baseInstruction = "Sos un asesor amable de Seguro a Tiempo. Respondé exclusivamente utilizando el contexto documental proporcionado. No utilices conocimiento externo. No inventes coberturas, exclusiones, sumas aseguradas, límites, franquicias, condiciones ni requisitos. Si la respuesta no puede determinarse claramente a partir del contexto, indicá amablemente que necesitás que un asesor lo confirme. Hablale directamente a la persona: explicá qué incluye, qué aplica o qué debe hacer, con frases claras y concretas. Empezá por la respuesta útil; no hagas saludos ni introducciones. La respuesta debe ser breve pero completa: si corresponde, enumerá dentro de una oración las coberturas o servicios principales antes de cerrar la respuesta. No menciones documentación, fuentes, PDFs, páginas, instrucciones internas, prompts, embeddings, chunks ni contexto RAG. No uses Markdown, títulos, hashtags ni listas con símbolos.";
 const cache = new Map<string, { expiresAt: number; answer: string; sources: Array<{ document: string; page?: number }> }>();
 const rate = new Map<string, number[]>();
+const GALENO_AUTO_SLUG = "galeno-auto";
+const GALENO_AUTO_SCOPE_MESSAGE = "Puedo ayudarte únicamente con consultas sobre el seguro de auto de Galeno.";
+const GALENO_AUTO_INSTRUCTIONS = "Respondé consultas sobre seguros de auto de Galeno: coberturas, franquicias, asistencia, contratación, circulación y siniestros, siempre según el contexto documental disponible.";
+
+async function repairKnownAssistantConfiguration(configuration: InstanceType<typeof AIConfiguration>) {
+  if (configuration.slug !== GALENO_AUTO_SLUG) return;
+  const systemInstructions = configuration.systemInstructions?.trim() ?? "";
+  const needsRepair = configuration.product !== "auto"
+    || configuration.outOfScopeMessage !== GALENO_AUTO_SCOPE_MESSAGE
+    || !systemInstructions
+    || /hogar/i.test(systemInstructions);
+  if (!needsRepair) return;
+  configuration.product = "auto";
+  configuration.outOfScopeMessage = GALENO_AUTO_SCOPE_MESSAGE;
+  if (!systemInstructions || /hogar/i.test(systemInstructions)) configuration.systemInstructions = GALENO_AUTO_INSTRUCTIONS;
+  configuration.knowledgeVersion += 1;
+  await configuration.save();
+}
 
 function cosine(a: number[], b: number[]) {
   let dot = 0, aa = 0, bb = 0;
@@ -34,8 +52,9 @@ export async function createDocument(input: { configurationIds: string[]; origin
 }
 
 export async function answerQuestion(configuration: InstanceType<typeof AIConfiguration>, question: string) {
+  await repairKnownAssistantConfiguration(configuration);
   const normalized = question.trim().toLocaleLowerCase("es").replace(/\s+/g, " ");
-  const cacheKey = `customer-answer-v4:${configuration.id}:${configuration.knowledgeVersion}:${createHash("sha256").update(normalized).digest("hex")}`;
+  const cacheKey = `customer-answer-v5:${configuration.id}:${configuration.knowledgeVersion}:${createHash("sha256").update(normalized).digest("hex")}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return { ...cached, cacheHit: true, providerCalled: false };
   const queryEmbedding = await geminiProvider.embed(question);
