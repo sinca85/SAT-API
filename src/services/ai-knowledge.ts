@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { AIDocument, AIChunk, AIConfiguration, AIQuery } from "../models/ai-knowledge.js";
+import { Faq } from "../models/faq.js";
 import { geminiProvider } from "../integrations/ai/gemini.js";
 import { env } from "../config/env.js";
 
@@ -54,21 +55,30 @@ export async function createDocument(input: { configurationIds: string[]; origin
 export async function answerQuestion(configuration: InstanceType<typeof AIConfiguration>, question: string) {
   await repairKnownAssistantConfiguration(configuration);
   const normalized = question.trim().toLocaleLowerCase("es").replace(/\s+/g, " ");
-  const cacheKey = `customer-answer-v5:${configuration.id}:${configuration.knowledgeVersion}:${createHash("sha256").update(normalized).digest("hex")}`;
+  const cacheKey = `customer-answer-v6:${configuration.id}:${configuration.knowledgeVersion}:${createHash("sha256").update(normalized).digest("hex")}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return { ...cached, cacheHit: true, providerCalled: false };
   const queryEmbedding = await geminiProvider.embed(question);
-  const chunks = await AIChunk.find({ configurationIds: configuration._id }).lean();
+  const [chunks, faqs] = await Promise.all([
+    AIChunk.find({ configurationIds: configuration._id }).lean(),
+    Faq.find({ insurer: configuration.company, product: configuration.product, active: true }).select("question answer source").lean(),
+  ]);
   // Insurance manuals often use very different wording from a customer's
   // question. Keep the best documentary matches and let the strict system
   // instruction decide whether the evidence actually answers the question.
   const matches = chunks.map((chunk) => ({ chunk, score: cosine(queryEmbedding, chunk.embedding) })).filter(({ score }) => score > 0.05).sort((a, b) => b.score - a.score).slice(0, 5);
-  if (!matches.length) return { answer: configuration.fallbackMessage, sources: [], cacheHit: false, providerCalled: false, fallback: true };
-  const context = matches.map(({ chunk }) => `[${chunk.documentName}${chunk.page ? `, página ${chunk.page}` : ""}]\n${chunk.text}`).join("\n\n");
+  if (!matches.length && !faqs.length) return { answer: configuration.fallbackMessage, sources: [], cacheHit: false, providerCalled: false, fallback: true };
+  const manualContext = matches.map(({ chunk }) => `[${chunk.documentName}${chunk.page ? `, página ${chunk.page}` : ""}]\n${chunk.text}`);
+  const faqContext = faqs.map((faq) => `[${faq.source || "Preguntas frecuentes"}]\nPregunta: ${faq.question}\nRespuesta: ${faq.answer}`);
+  const context = [...manualContext, ...faqContext].join("\n\n");
   const defaultOutOfScopeMessage = `Puedo ayudarte únicamente con consultas sobre el seguro de ${configuration.product}.`;
   const outOfScopeMessage = !configuration.outOfScopeMessage || configuration.outOfScopeMessage === "Puedo ayudarte únicamente con consultas sobre este seguro." ? defaultOutOfScopeMessage : configuration.outOfScopeMessage;
   const answer = await geminiProvider.answer({ systemInstruction: `${baseInstruction}\nPrimero verificá si la pregunta trata sobre el seguro, el producto, sus coberturas, asistencia, contratación, siniestros o condiciones. Si no tiene relación con ese tema (por ejemplo fecha, clima, noticias, entretenimiento, tecnología o conversaciones generales), respondé exactamente este mensaje y nada más: ${outOfScopeMessage}\nInstrucciones adicionales de configuración (subordinadas a las anteriores): ${configuration.systemInstructions || "ninguna"}`, question, context, maxOutputTokens: 1000 });
-  const sources = matches.map(({ chunk }) => ({ document: chunk.documentName, ...(chunk.page ? { page: chunk.page } : {}) }));
+  const faqSources = [...new Set(faqs.map((faq) => faq.source || "Preguntas frecuentes"))];
+  const sources = [
+    ...matches.map(({ chunk }) => ({ document: chunk.documentName, ...(chunk.page ? { page: chunk.page } : {}) })),
+    ...faqSources.map((document) => ({ document })),
+  ];
   cache.set(cacheKey, { expiresAt: Date.now() + 24 * 60 * 60 * 1000, answer, sources });
   return { answer, sources, cacheHit: false, providerCalled: true, fallback: !answer };
 }
