@@ -58,7 +58,7 @@ GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 type UserRole = "admin" | "user";
 type UserStatus = "pending" | "active" | "disabled";
-type View = "users" | "roles" | "highlevel-contacts" | "leads" | "faqs" | "ai" | "config" | "analytics" | "landing-hogar" | "landing-auto";
+type View = "users" | "roles" | "highlevel-contacts" | "leads" | "faqs" | "ai" | "config" | "analytics-ga4" | "analytics-meta" | "landing-hogar" | "landing-auto";
 type LeadStatus = "new" | "pending_contact" | "contacted" | "follow_up" | "interested" | "quote_sent" | "won" | "not_interested" | "not_qualified" | "unresponsive";
 
 interface SessionUser {
@@ -230,12 +230,14 @@ const viewPaths: Record<View, string> = {
   "highlevel-contacts": "/highlevel/contactos",
   ai: "/ia",
   config: "/config",
-  analytics: "/analytics",
+  "analytics-ga4": "/analytics/ga4",
+  "analytics-meta": "/analytics/meta-ads",
   "landing-hogar": "/landings/hogar",
   "landing-auto": "/landings/auto",
 };
 
 function viewFromPath(pathname: string): View {
+  if (pathname === "/analytics" || pathname === "/analytics/") return "analytics-ga4";
   const entry = Object.entries(viewPaths).find(([, path]) => path === pathname);
   return (entry?.[0] as View | undefined) ?? "users";
 }
@@ -1156,13 +1158,13 @@ function AnalyticsCampaignSetup({ campaigns, canManage }: { campaigns: Analytics
   </Space>;
 }
 
-function AnalyticsDashboard({ canManage }: { canManage: boolean }) {
+function AnalyticsDashboard({ canManage, section }: { canManage: boolean; section: "ga4" | "meta" }) {
   const { message } = AntApp.useApp();
   const [data, setData] = useState<{ status: string; message?: string; settings: AnalyticsConfiguration; campaign?: AnalyticsCampaign; overview?: AnalyticsOverview } | null>(null);
   const [loading, setLoading] = useState(true);
   const [campaigns, setCampaigns] = useState<AnalyticsCampaign[]>([]);
   const [campaignId, setCampaignId] = useState(() => window.localStorage.getItem("sat.analytics.selectedCampaignId") || "all");
-  const [analyticsTab, setAnalyticsTab] = useState("overview");
+  const [analyticsTab, setAnalyticsTab] = useState(section === "meta" ? "meta" : "overview");
   const [metaData, setMetaData] = useState<{ status: string; message?: string; overview?: MetaAdsOverview } | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
   const [metaCampaign, setMetaCampaign] = useState<MetaCampaignDetail | null>(null);
@@ -1182,7 +1184,7 @@ function AnalyticsDashboard({ canManage }: { canManage: boolean }) {
   useEffect(() => {
     if (campaignId && campaignId !== "all" && campaigns.length && !campaigns.some(campaign => campaign.utmCampaign && campaign._id === campaignId)) setCampaignId("all");
   }, [campaignId, campaigns]);
-  const analyticsTabs = <Tabs activeKey={analyticsTab} onChange={setAnalyticsTab} items={[{ key: "overview", label: "Resumen" }, { key: "meta", label: "Meta Ads" }, { key: "campaigns", label: "Campañas" }]} />;
+  const analyticsTabs = section === "ga4" ? <Tabs activeKey={analyticsTab} onChange={setAnalyticsTab} items={[{ key: "overview", label: "Resumen" }, { key: "campaigns", label: "Campañas" }]} /> : null;
   const campaignOptions = [{ value: "all", label: "Todas las campañas" }, ...campaigns.filter(campaign => campaign.utmCampaign).map(campaign => ({ value: campaign._id, label: campaign.utmCampaign! }))];
   if (loading) return <Spin />;
   if (analyticsTab === "campaigns") return <Space direction="vertical" size="large" style={{ width: "100%" }}>{analyticsTabs}<AnalyticsCampaignSetup campaigns={campaigns} canManage={canManage} /></Space>;
@@ -1337,9 +1339,9 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
   }, []);
 
   useEffect(() => {
-    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "ai" && can("ai.view")) || (view === "config" && can("config.view")) || (view === "analytics" && can("analytics.view")) || ((view === "landing-hogar" || view === "landing-auto") && can("landings.view")) || (view === "highlevel-contacts" && can("highlevel.view") && can("highlevel.contacts.view"));
+    const allowed = (view === "users" && can("users.view")) || (view === "roles" && can("roles.manage")) || (view === "leads" && can("leads.view")) || (view === "faqs" && can("faqs.view")) || (view === "ai" && can("ai.view")) || (view === "config" && can("config.view")) || ((view === "analytics-ga4" || view === "analytics-meta") && can("analytics.view")) || ((view === "landing-hogar" || view === "landing-auto") && can("landings.view")) || (view === "highlevel-contacts" && can("highlevel.view") && can("highlevel.contacts.view"));
     if (allowed) return;
-    const fallback: View | undefined = can("leads.view") ? "leads" : can("faqs.view") ? "faqs" : can("ai.view") ? "ai" : can("analytics.view") ? "analytics" : can("landings.view") ? "landing-hogar" : can("config.view") ? "config" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.view") && can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
+    const fallback: View | undefined = can("leads.view") ? "leads" : can("faqs.view") ? "faqs" : can("ai.view") ? "ai" : can("analytics.view") ? "analytics-ga4" : can("landings.view") ? "landing-hogar" : can("config.view") ? "config" : can("users.view") ? "users" : can("roles.manage") ? "roles" : can("highlevel.view") && can("highlevel.contacts.view") ? "highlevel-contacts" : undefined;
     if (fallback) navigate(fallback);
   }, [can, navigate, view]);
 
@@ -1372,18 +1374,23 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
     [can],
   );
 
+  const analyticsMenu = useMemo<MenuProps["items"]>(
+    () => can("analytics.view") ? [{ key: "analytics-ga4", label: "GA4", icon: <GoogleOutlined /> }, { key: "analytics-meta", label: "Meta Ads", icon: <BarChartOutlined /> }] : [],
+    [can],
+  );
+
   const mobileNavigationMenu = useMemo<MenuProps["items"]>(
     () => [
       can("leads.view") ? { key: "leads", label: "Leads", icon: <ContactsOutlined /> } : null,
       can("faqs.view") ? { key: "faqs", label: "FAQs", icon: <SafetyCertificateOutlined /> } : null,
       can("ai.view") ? { key: "ai", label: "IA", icon: <SafetyCertificateOutlined /> } : null,
-      can("analytics.view") ? { key: "analytics", label: "Analytics", icon: <BarChartOutlined /> } : null,
+      can("analytics.view") ? { key: "analytics-menu", label: "Analytics", icon: <BarChartOutlined />, children: analyticsMenu } : null,
       can("landings.view") ? { key: "landings", label: "Landings", icon: <LinkOutlined />, children: landingsMenu } : null,
       (can("users.view") || can("roles.manage")) ? { key: "users-menu", label: "Usuarios", icon: <TeamOutlined />, children: userMenu } : null,
       can("highlevel.view") && can("highlevel.contacts.view") ? { key: "highlevel", label: "Contactos", icon: <ContactsOutlined />, children: highLevelMenu } : null,
       can("config.view") ? { key: "config", label: "Config", icon: <SettingOutlined /> } : null,
     ].filter(Boolean) as MenuProps["items"],
-    [can, highLevelMenu, landingsMenu, userMenu],
+    [analyticsMenu, can, highLevelMenu, landingsMenu, userMenu],
   );
 
   const logout = async () => {
@@ -1400,7 +1407,9 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
             {can("leads.view") && <Button type="text" className="header-menu-button" icon={<ContactsOutlined />} onClick={() => navigate("leads")}>Leads</Button>}
             {can("faqs.view") && <Button type="text" className="header-menu-button" icon={<SafetyCertificateOutlined />} onClick={() => navigate("faqs")}>FAQs</Button>}
             {can("ai.view") && <Button type="text" className="header-menu-button" icon={<SafetyCertificateOutlined />} onClick={() => navigate("ai")}>IA</Button>}
-            {can("analytics.view") && <Button type="text" className="header-menu-button" icon={<BarChartOutlined />} onClick={() => navigate("analytics")}>Analytics</Button>}
+            {can("analytics.view") && <Dropdown menu={{ items: analyticsMenu, onClick: ({ key }) => navigate(key as View) }} trigger={["click"]}>
+              <Button type="text" className="header-menu-button" icon={<BarChartOutlined />}>Analytics <DownOutlined /></Button>
+            </Dropdown>}
             {can("landings.view") && <Dropdown menu={{ items: landingsMenu, onClick: ({ key }) => navigate(key as View) }} trigger={["click"]}>
               <Button type="text" className="header-menu-button" icon={<LinkOutlined />}>Landings <DownOutlined /></Button>
             </Dropdown>}
@@ -1455,7 +1464,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
         <Flex justify="space-between" align="center" gap={16} wrap="wrap" className="page-heading">
           <div>
             <Typography.Title level={2}>
-              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : view === "ai" ? "Inteligencia artificial" : view === "analytics" ? "Analytics" : view === "landing-auto" ? "Landing · Auto" : view === "landing-hogar" ? "Landing · Hogar" : view === "config" ? "Configuración" : "Contactos"}
+              {view === "users" ? "Usuarios" : view === "roles" ? "Roles" : view === "leads" ? "Leads" : view === "faqs" ? "Preguntas frecuentes" : view === "ai" ? "Inteligencia artificial" : view === "analytics-ga4" ? "Analytics · GA4" : view === "analytics-meta" ? "Analytics · Meta Ads" : view === "landing-auto" ? "Landing · Auto" : view === "landing-hogar" ? "Landing · Hogar" : view === "config" ? "Configuración" : "Contactos"}
             </Typography.Title>
             <Typography.Text type="secondary">
               {view === "users"
@@ -1466,7 +1475,7 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
                     ? "Solicitudes recibidas desde los cotizadores y su estado de sincronización."
                     : view === "faqs"
                       ? "Base de preguntas y respuestas organizada por aseguradora y tipo de seguro."
-                    : view === "ai" ? "Asistentes y bases de conocimiento por aseguradora y tipo de seguro." : view === "analytics" ? "Métricas y estado de conexión de Google Analytics." : view === "landing-auto" ? "Acceso a Galeno y preferencias de la landing de Auto." : view === "landing-hogar" ? "Controles de automatización y envíos de la landing de cotización de Hogar." : view === "config" ? "Datos reutilizables por las landings y los asistentes." : "Copia local de los contactos de la subcuenta de Seguro a Tiempo. Usá Sincronizar para actualizarla."}
+                    : view === "ai" ? "Asistentes y bases de conocimiento por aseguradora y tipo de seguro." : view === "analytics-ga4" ? "Métricas, campañas y estado de conexión de Google Analytics 4." : view === "analytics-meta" ? "Rendimiento de campañas y anuncios de Meta Ads." : view === "landing-auto" ? "Acceso a Galeno y preferencias de la landing de Auto." : view === "landing-hogar" ? "Controles de automatización y envíos de la landing de cotización de Hogar." : view === "config" ? "Datos reutilizables por las landings y los asistentes." : "Copia local de los contactos de la subcuenta de Seguro a Tiempo. Usá Sincronizar para actualizarla."}
             </Typography.Text>
           </div>
           {view === "users" && (
@@ -1489,8 +1498,8 @@ function AdminPanel({ sessionUser }: { sessionUser: SessionUser }) {
             can("ai.view") ? <AIKnowledgePanel canManage={can("ai.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : view === "config" ? (
             can("config.view") ? <ConfigPanel canManage={can("config.manage")} /> : <Result status="403" title="Sin acceso" />
-          ) : view === "analytics" ? (
-            can("analytics.view") ? <AnalyticsDashboard canManage={can("analytics.manage")} /> : <Result status="403" title="Sin acceso" />
+          ) : view === "analytics-ga4" || view === "analytics-meta" ? (
+            can("analytics.view") ? <AnalyticsDashboard key={view} canManage={can("analytics.manage")} section={view === "analytics-meta" ? "meta" : "ga4"} /> : <Result status="403" title="Sin acceso" />
           ) : view === "landing-auto" ? (
             can("landings.view") ? <AutoLandingPanel canManage={can("landings.manage")} /> : <Result status="403" title="Sin acceso" />
           ) : view === "landing-hogar" ? (
