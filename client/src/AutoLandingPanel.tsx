@@ -35,6 +35,8 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
   const [catalogs, setCatalogs] = useState<Catalogs | null>(null);
   const [catalogError, setCatalogError] = useState("");
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [connectionTesting, setConnectionTesting] = useState(false);
+  const [connectionTest, setConnectionTest] = useState<{ brands: Option[] } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true); setError("");
@@ -68,6 +70,17 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
     } catch (err) { message.error(err instanceof Error ? err.message : "No se pudo guardar."); }
     finally { setSaving(false); }
   };
+  const testOracle = async () => {
+    setConnectionTesting(true); setConnectionTest(null);
+    try {
+      const response = await fetch("/admin/auto/oracle-test", { method: "POST", credentials: "include" });
+      const data = await readResponse<{ ok: true; route: "oracle"; brands: Option[] }>(response);
+      setConnectionTest({ brands: data.brands });
+      setConnectionStatus(current => ({ ...current, activeRoute: "oracle", lastOracleSuccessAt: new Date().toISOString() }));
+      message.success(`Oracle respondió y Galeno devolvió ${data.brands.length} marcas`);
+    } catch (err) { message.error(err instanceof Error ? err.message : "No se pudo probar Oracle."); }
+    finally { setConnectionTesting(false); }
+  };
   if (loading) return <Spin />;
   if (error || !settings) return <Alert type="error" title={error || "Configuración no disponible"} action={<Button onClick={() => setAttempt(value => value + 1)}>Reintentar</Button>} />;
   const disabled = !canManage || saving;
@@ -76,8 +89,9 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
     <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}><div><Typography.Title level={4} style={{ margin: 0 }}>Seguro Auto Galeno</Typography.Title><Typography.Text type="secondary">Acceso y valores predeterminados del cotizador de Auto.</Typography.Text></div><Button href="https://cotizar.seguroatiempo.com/auto" target="_blank" rel="noreferrer">Ver landing</Button></div>
     <Alert type="info" showIcon title="Sandbox de Galeno · Solo cotización" description="Guardá el acceso, cargá las opciones de tu cuenta y elegí los valores que se usarán para todas las cotizaciones. Los resultados pertenecen al entorno de prueba." />
     {connectionStatus?.activeRoute === "fixie" && <Alert type="warning" showIcon title="Cotizando mediante Fixie" description={`Oracle no respondió y el respaldo está activo desde ${connectionStatus.switchedAt ? new Date(connectionStatus.switchedAt).toLocaleString("es-AR") : "la última consulta"}. ${connectionStatus.lastError || ""}`} />}
-    {connectionStatus?.activeRoute === "oracle" && <Alert type="success" showIcon title="Conexión principal operativa" description="Las consultas de Galeno están saliendo mediante la IP fija de Oracle." />}
+    {connectionStatus?.activeRoute === "oracle" && <Alert type="success" showIcon title="Conexión principal operativa" description="Las consultas de Galeno están saliendo mediante la IP fija de Oracle." action={<Button disabled={!canManage} loading={connectionTesting} onClick={() => void testOracle()}>Probar conexión</Button>} />}
     {!connectionStatus?.activeRoute || connectionStatus.activeRoute === "unconfigured" ? <Alert type="info" showIcon title="Ruta de Galeno todavía sin verificar" description="El estado se actualizará con la próxima consulta al sandbox." /> : null}
+    {connectionTest && <Alert type="success" showIcon title={`Prueba exitosa: ${connectionTest.brands.length} marcas recibidas desde Galeno`} description={<Typography.Paragraph style={{ margin: 0 }}>{connectionTest.brands.map(brand => brand.label).join(", ")}</Typography.Paragraph>} />}
     <Card title="Acceso al API de Galeno"><Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Text>Ambiente: <strong>Pruebas (sandbox)</strong></Typography.Text>
       <label>Usuario de Galeno<Input disabled={disabled} autoComplete="off" value={settings.username} onChange={event => patch({ username: event.target.value })} /></label>

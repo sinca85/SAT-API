@@ -5,7 +5,7 @@ import { AutoSettings } from "../models/auto-settings.js";
 import { SiteConfig } from "../models/site-config.js";
 import { autoDefaults, GALENO_SANDBOX_URL, readAutoSettings } from "../services/auto-settings.js";
 import { createGalenoClient, createGalenoTransport, GalenoError, type TokenStore } from "../services/galeno-client.js";
-import { loadAdminCatalogs } from "../services/galeno-quotes.js";
+import { loadAdminCatalogs, options } from "../services/galeno-quotes.js";
 import { canStoreAutoSecrets, encryptAutoSecret } from "../services/auto-secrets.js";
 import { readGalenoRouteStatus } from "../services/galeno-route-status.js";
 
@@ -28,6 +28,27 @@ function serialize(entry: Record<string, unknown>) {
   return { ...Object.fromEntries(Object.keys(defaults).map(key => [key, entry[key] ?? defaults[key as keyof typeof defaults]])), hasPassword: Boolean(entry.passwordEncrypted), hasBasicAuthorization: Boolean(entry.authorizationEncrypted), mode: "sandbox", secretsStorageAvailable: canStoreAutoSecrets() };
 }
 export const adminAutoRouter = Router();
+
+async function runOracleTest() {
+  const relayUrl = process.env.GALENO_ORACLE_TEST_RELAY_URL;
+  const relayToken = process.env.GALENO_ORACLE_TEST_RELAY_TOKEN;
+  if (!relayUrl || !relayToken) throw new GalenoError("oracle_test_not_configured", "Falta configurar el relay de diagnóstico de Oracle.", 503);
+  // Keep this probe isolated: no Fixie fallback and no shared token cache, so both
+  // authentication and the catalog request must travel through Oracle.
+  let cachedToken: string | null = null;
+  const tokens: TokenStore = {
+    async get() { return cachedToken; },
+    async acquire() { return true; },
+    async save(_key, _owner, _fingerprint, token) { cachedToken = token; },
+    async release() {},
+    async invalidate() { cachedToken = null; },
+  };
+  const transport = createGalenoTransport("", undefined, relayUrl, relayToken, async () => {});
+  const client = createGalenoClient(await readAutoSettings(), transport, tokens);
+  const brands = options(await client("/api/cotizadores/auto/marcas?rama=4"));
+  return { ok: true, route: "oracle", environment: "sandbox", brands };
+}
+
 adminAutoRouter.use(requireAuthentication, requireActiveUser, requirePermission("landings.view"));
 adminAutoRouter.get("/", async (_request, response) => {
   const [entry, commercial, connectionStatus] = await Promise.all([
@@ -57,27 +78,7 @@ adminAutoRouter.post("/catalogs", requirePermission("landings.manage"), async (r
 });
 
 adminAutoRouter.post("/oracle-test", requirePermission("landings.manage"), async (_request, response) => {
-  const relayUrl = process.env.GALENO_ORACLE_TEST_RELAY_URL;
-  const relayToken = process.env.GALENO_ORACLE_TEST_RELAY_TOKEN;
-  if (!relayUrl || !relayToken) {
-    response.status(503).json({ error: "Falta configurar el relay de diagnóstico de Oracle.", code: "oracle_test_not_configured" }); return;
-  }
-  // Keep this probe isolated: no Fixie fallback and no shared token cache, so both
-  // authentication and the catalog request must travel through Oracle.
-  let cachedToken: string | null = null;
-  const tokens: TokenStore = {
-    async get() { return cachedToken; },
-    async acquire() { return true; },
-    async save(_key, _owner, _fingerprint, token) { cachedToken = token; },
-    async release() {},
-    async invalidate() { cachedToken = null; },
-  };
-  const transport = createGalenoTransport("", undefined, relayUrl, relayToken, async () => {});
-  const client = createGalenoClient(await readAutoSettings(), transport, tokens);
-  const raw = await client("/api/administracion/usuario/planes/comerciales?rama=4");
-  const list = Array.isArray(raw) ? raw : (raw as { lista?: unknown } | null)?.lista;
-  if (!Array.isArray(list)) throw new GalenoError("invalid_response", "Galeno devolvió un catálogo no válido.");
-  response.json({ ok: true, route: "oracle", environment: "sandbox", catalog: "planes_comerciales", records: list.length });
+  response.json(await runOracleTest());
 });
 adminAutoRouter.use((error: unknown, _request: import("express").Request, response: import("express").Response, next: import("express").NextFunction) => {
   if (error instanceof GalenoError) { response.status(error.status).json({ error: error.message, code: error.code, ...(error.galeno !== undefined ? { galeno: error.galeno } : {}) }); return; }
