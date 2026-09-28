@@ -48,7 +48,10 @@ function findRelevantFaq<T extends { question: string; answer: string }>(faqs: T
   const ranked = faqs.map((faq) => {
     const questionTerms = searchTerms(faq.question);
     const answerTerms = searchTerms(faq.answer);
-    const score = [...queryTerms].reduce((total, term) => total + (questionTerms.has(term) ? 3 : answerTerms.has(term) ? 1 : 0), 0);
+    const questionOverlap = [...queryTerms].filter((term) => questionTerms.has(term)).length;
+    const answerOverlap = [...queryTerms].filter((term) => !questionTerms.has(term) && answerTerms.has(term)).length;
+    const unmatchedSpecificTerms = Math.max(0, questionTerms.size - questionOverlap);
+    const score = questionOverlap * 4 + answerOverlap - unmatchedSpecificTerms;
     return { faq, score };
   }).sort((a, b) => b.score - a.score);
   return ranked[0]?.score ? ranked[0].faq : null;
@@ -77,7 +80,7 @@ export async function createDocument(input: { configurationIds: string[]; origin
 export async function answerQuestion(configuration: InstanceType<typeof AIConfiguration>, question: string) {
   await repairKnownAssistantConfiguration(configuration);
   const normalized = question.trim().toLocaleLowerCase("es").replace(/\s+/g, " ");
-  const cacheKey = `customer-answer-v9:${configuration.id}:${configuration.knowledgeVersion}:${createHash("sha256").update(normalized).digest("hex")}`;
+  const cacheKey = `customer-answer-v10:${configuration.id}:${configuration.knowledgeVersion}:${createHash("sha256").update(normalized).digest("hex")}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return { ...cached, cacheHit: true, providerCalled: false, fallback: false };
   const faqs = await Faq.find({ insurer: configuration.company, product: configuration.product, active: true }).select("question answer source").lean();
