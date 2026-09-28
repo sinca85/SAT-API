@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { env } from "../src/config/env.js";
-import { getMetaAdsOverview, testMetaAdsConnection } from "../src/services/meta-ads.js";
+import { getMetaAdsOverview, getMetaCampaignAds, testMetaAdsConnection } from "../src/services/meta-ads.js";
 
 Object.assign(env, {
   META_ACCESS_TOKEN: "secret-meta-token",
@@ -45,4 +45,22 @@ test("Meta overview aggregates campaign metrics without counting duplicate lead 
 test("Meta errors do not expose the access token", async () => {
   const fetcher: typeof fetch = async () => json({ error: { message: "Invalid token secret-meta-token", code: 190 } }, 401);
   await assert.rejects(() => testMetaAdsConnection(fetcher), (error: Error) => error.message.includes("[token oculto]") && !error.message.includes("secret-meta-token"));
+});
+
+test("Campaign drill-down returns totals and individual ads for the same period", async () => {
+  const fetcher: typeof fetch = async (url) => {
+    const value = String(url);
+    if (value.includes("/123/insights?")) return json({ data: [
+      { ad_id: "video-1", ad_name: "Video actuado", spend: "250", impressions: "2500", reach: "2000", clicks: "75", inline_link_clicks: "60", actions: [{ action_type: "lead", value: "5" }] },
+      { ad_id: "video-2", ad_name: "Video aplicación", spend: "150", impressions: "1500", reach: "1200", clicks: "30", inline_link_clicks: "25", actions: [{ action_type: "lead", value: "3" }] },
+    ] });
+    if (value.includes("/123?")) return json({ id: "123", name: "Dar clientes potenciales" });
+    throw new Error(`Unexpected URL: ${value}`);
+  };
+  const result = await getMetaCampaignAds("123", { startDate: "2026-09-01", endDate: "2026-09-28" }, fetcher);
+  assert.equal(result.campaign.name, "Dar clientes potenciales");
+  assert.deepEqual(result.ads.map(ad => ad.name), ["Video actuado", "Video aplicación"]);
+  assert.equal(result.totals.spend, 400);
+  assert.equal(result.totals.leads, 8);
+  assert.equal(result.totals.costPerLead, 50);
 });

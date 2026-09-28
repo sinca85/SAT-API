@@ -7,6 +7,8 @@ interface MetaAction { action_type?: string; value?: string }
 interface MetaInsight {
   campaign_id?: string;
   campaign_name?: string;
+  ad_id?: string;
+  ad_name?: string;
   spend?: string;
   impressions?: string;
   reach?: string;
@@ -18,6 +20,38 @@ interface MetaInsight {
 const number = (value?: string) => Number(value ?? 0) || 0;
 const money = (value: number) => Math.round(value * 100) / 100;
 const leadActionNames = new Set(["lead", "onsite_conversion.lead_grouped", "offsite_conversion.fb_pixel_lead"]);
+
+function metricRow(row: MetaInsight, index: number, kind: "campaign" | "ad") {
+  const spend = number(row.spend);
+  const impressions = number(row.impressions);
+  const clicks = number(row.clicks);
+  const leads = Math.max(0, ...(row.actions ?? []).filter(action => leadActionNames.has(action.action_type ?? "")).map(action => number(action.value)));
+  return {
+    id: (kind === "campaign" ? row.campaign_id : row.ad_id) ?? `${kind}-${index}`,
+    name: (kind === "campaign" ? row.campaign_name : row.ad_name) ?? (kind === "campaign" ? "Campaña sin nombre" : "Anuncio sin nombre"),
+    spend: money(spend), impressions, reach: number(row.reach), clicks,
+    linkClicks: number(row.inline_link_clicks), leads,
+    ctr: impressions ? money((clicks / impressions) * 100) : 0,
+    cpc: clicks ? money(spend / clicks) : 0,
+    costPerLead: leads ? money(spend / leads) : 0,
+  };
+}
+
+function metricTotals(rows: ReturnType<typeof metricRow>[]) {
+  const totals = rows.reduce((sum, row) => ({
+    spend: money(sum.spend + row.spend), impressions: sum.impressions + row.impressions,
+    reach: sum.reach + row.reach, clicks: sum.clicks + row.clicks,
+    linkClicks: sum.linkClicks + row.linkClicks, leads: sum.leads + row.leads,
+  }), { spend: 0, impressions: 0, reach: 0, clicks: 0, linkClicks: 0, leads: 0 });
+  return { ...totals, ctr: totals.impressions ? money((totals.clicks / totals.impressions) * 100) : 0, cpc: totals.clicks ? money(totals.spend / totals.clicks) : 0, costPerLead: totals.leads ? money(totals.spend / totals.leads) : 0 };
+}
+
+function period(range: MetaAdsDateRange) {
+  const until = range.endDate ?? new Date().toISOString().slice(0, 10);
+  const sinceDate = new Date(`${until}T00:00:00Z`);
+  sinceDate.setUTCDate(sinceDate.getUTCDate() - 29);
+  return { since: range.startDate ?? sinceDate.toISOString().slice(0, 10), until };
+}
 
 function credentials() {
   if (!env.META_ACCESS_TOKEN || !env.META_AD_ACCOUNT_ID) {
@@ -60,10 +94,7 @@ export async function testMetaAdsConnection(fetcher: typeof fetch = fetch) {
 
 export async function getMetaAdsOverview(range: MetaAdsDateRange = {}, fetcher: typeof fetch = fetch) {
   const account = await testMetaAdsConnection(fetcher);
-  const until = range.endDate ?? new Date().toISOString().slice(0, 10);
-  const sinceDate = new Date(`${until}T00:00:00Z`);
-  sinceDate.setUTCDate(sinceDate.getUTCDate() - 29);
-  const since = range.startDate ?? sinceDate.toISOString().slice(0, 10);
+  const { since, until } = period(range);
   const { accountId } = credentials();
   const body = await graph<{ data?: MetaInsight[] }>(`${accountId}/insights`, {
     level: "campaign",
@@ -72,30 +103,28 @@ export async function getMetaAdsOverview(range: MetaAdsDateRange = {}, fetcher: 
     time_increment: "all_days",
     limit: "500",
   }, fetcher);
-  const campaigns = (body.data ?? []).map((row, index) => {
-    const spend = number(row.spend);
-    const impressions = number(row.impressions);
-    const clicks = number(row.clicks);
-    const leads = Math.max(0, ...(row.actions ?? []).filter(action => leadActionNames.has(action.action_type ?? "")).map(action => number(action.value)));
-    return {
-      id: row.campaign_id ?? `campaign-${index}`,
-      name: row.campaign_name ?? "Campaña sin nombre",
-      spend: money(spend), impressions, reach: number(row.reach), clicks,
-      linkClicks: number(row.inline_link_clicks), leads,
-      ctr: impressions ? money((clicks / impressions) * 100) : 0,
-      cpc: clicks ? money(spend / clicks) : 0,
-      costPerLead: leads ? money(spend / leads) : 0,
-    };
-  });
-  const totals = campaigns.reduce((sum, row) => ({
-    spend: money(sum.spend + row.spend), impressions: sum.impressions + row.impressions,
-    reach: sum.reach + row.reach, clicks: sum.clicks + row.clicks,
-    linkClicks: sum.linkClicks + row.linkClicks, leads: sum.leads + row.leads,
-  }), { spend: 0, impressions: 0, reach: 0, clicks: 0, linkClicks: 0, leads: 0 });
+  const campaigns = (body.data ?? []).map((row, index) => metricRow(row, index, "campaign"));
   return {
     period: `${since} al ${until}`,
     account: { id: account.id, name: account.name, status: account.account_status, currency: account.currency, timezone: account.timezone_name },
-    totals: { ...totals, ctr: totals.impressions ? money((totals.clicks / totals.impressions) * 100) : 0, cpc: totals.clicks ? money(totals.spend / totals.clicks) : 0, costPerLead: totals.leads ? money(totals.spend / totals.leads) : 0 },
+    totals: metricTotals(campaigns),
     campaigns,
   };
+}
+
+export async function getMetaCampaignAds(campaignId: string, range: MetaAdsDateRange = {}, fetcher: typeof fetch = fetch) {
+  if (!/^\d+$/.test(campaignId)) throw new Error("El identificador de campaña no es válido.");
+  const { since, until } = period(range);
+  const [campaign, body] = await Promise.all([
+    graph<{ id: string; name: string }>(campaignId, { fields: "id,name" }, fetcher),
+    graph<{ data?: MetaInsight[] }>(`${campaignId}/insights`, {
+      level: "ad",
+      fields: "ad_id,ad_name,spend,impressions,reach,clicks,inline_link_clicks,actions",
+      time_range: JSON.stringify({ since, until }),
+      time_increment: "all_days",
+      limit: "500",
+    }, fetcher),
+  ]);
+  const ads = (body.data ?? []).map((row, index) => metricRow(row, index, "ad"));
+  return { period: `${since} al ${until}`, campaign, totals: metricTotals(ads), ads };
 }

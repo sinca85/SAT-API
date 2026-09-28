@@ -6,7 +6,7 @@ import { AnalyticsCampaign } from "../models/analytics-campaign.js";
 import { AnalyticsFunnelConfig } from "../models/analytics-funnel-config.js";
 import { env } from "../config/env.js";
 import { getAnalyticsCampaignEvents, getAnalyticsCampaignNames, getAnalyticsOverview } from "../services/google-analytics.js";
-import { getMetaAdsOverview, testMetaAdsConnection } from "../services/meta-ads.js";
+import { getMetaAdsOverview, getMetaCampaignAds, testMetaAdsConnection } from "../services/meta-ads.js";
 
 const defaultMeasurementId = "G-WSQ0X7LXTC";
 const settingsInput = z.object({
@@ -168,6 +168,19 @@ adminAnalyticsRouter.get("/meta/overview", requirePermission("analytics.view"), 
   }
   try { response.json({ status: "connected", overview: await getMetaAdsOverview(dateRange) }); }
   catch (error) { response.json({ status: "connection_error", message: error instanceof Error ? error.message : "No se pudo consultar Meta Ads." }); }
+});
+
+adminAnalyticsRouter.get("/meta/campaigns/:campaignId/ads", requirePermission("analytics.view"), async (request, response) => {
+  const campaignId = z.string().regex(/^\d+$/).parse(request.params.campaignId);
+  const dateRange = dateQuery.parse({
+    startDate: typeof request.query.startDate === "string" ? request.query.startDate : undefined,
+    endDate: typeof request.query.endDate === "string" ? request.query.endDate : undefined,
+  });
+  if (Boolean(dateRange.startDate) !== Boolean(dateRange.endDate) || (dateRange.startDate && dateRange.endDate && dateRange.startDate > dateRange.endDate)) {
+    response.status(400).json({ error: "Indicá un rango de fechas válido." }); return;
+  }
+  try { response.json({ status: "connected", detail: await getMetaCampaignAds(campaignId, dateRange) }); }
+  catch (error) { response.status(502).json({ error: error instanceof Error ? error.message : "No se pudo consultar el detalle de la campaña." }); }
 });
 
 adminAnalyticsRouter.post("/meta/test", requirePermission("analytics.view"), async (_request, response) => {

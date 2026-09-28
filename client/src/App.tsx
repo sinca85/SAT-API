@@ -157,6 +157,13 @@ interface MetaAdsOverview {
   campaigns: Array<{ id: string; name: string; spend: number; impressions: number; reach: number; clicks: number; linkClicks: number; leads: number; ctr: number; cpc: number; costPerLead: number }>;
 }
 
+interface MetaCampaignDetail {
+  period: string;
+  campaign: { id: string; name: string };
+  totals: MetaAdsOverview["totals"];
+  ads: MetaAdsOverview["campaigns"];
+}
+
 interface LandingConfiguration {
   _id: string;
   slug: string;
@@ -1158,11 +1165,13 @@ function AnalyticsDashboard({ canManage }: { canManage: boolean }) {
   const [analyticsTab, setAnalyticsTab] = useState("overview");
   const [metaData, setMetaData] = useState<{ status: string; message?: string; overview?: MetaAdsOverview } | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
+  const [metaCampaign, setMetaCampaign] = useState<MetaCampaignDetail | null>(null);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const loadCampaigns = useCallback(async () => { try { const query = new URLSearchParams(); if (startDate && endDate) { query.set("startDate", startDate); query.set("endDate", endDate); } const response = await requestJson<{ campaigns: AnalyticsCampaign[] }>(`/admin/analytics/campaigns${query.size ? `?${query.toString()}` : ""}`); setCampaigns(response.campaigns); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar las campañas"); } }, [message, startDate, endDate]);
   const load = useCallback(async () => { setLoading(true); try { const query = new URLSearchParams(); const selectedCampaignId = campaignId || data?.campaign?._id; if (selectedCampaignId) query.set("campaignId", selectedCampaignId); if (startDate && endDate) { query.set("startDate", startDate); query.set("endDate", endDate); } setData(await requestJson(`/admin/analytics/overview${query.size ? `?${query.toString()}` : ""}`)); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar las métricas"); } finally { setLoading(false); } }, [message, campaignId, data?.campaign?._id, startDate, endDate]);
-  const loadMeta = useCallback(async () => { setMetaLoading(true); try { const query = new URLSearchParams(); if (startDate && endDate) { query.set("startDate", startDate); query.set("endDate", endDate); } setMetaData(await requestJson(`/admin/analytics/meta/overview${query.size ? `?${query.toString()}` : ""}`)); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar las métricas de Meta Ads"); } finally { setMetaLoading(false); } }, [message, startDate, endDate]);
+  const loadMeta = useCallback(async () => { setMetaLoading(true); setMetaCampaign(null); try { const query = new URLSearchParams(); if (startDate && endDate) { query.set("startDate", startDate); query.set("endDate", endDate); } setMetaData(await requestJson(`/admin/analytics/meta/overview${query.size ? `?${query.toString()}` : ""}`)); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar las métricas de Meta Ads"); } finally { setMetaLoading(false); } }, [message, startDate, endDate]);
+  const loadMetaCampaign = useCallback(async (campaignId: string) => { setMetaLoading(true); try { const query = new URLSearchParams(); if (startDate && endDate) { query.set("startDate", startDate); query.set("endDate", endDate); } const result = await requestJson<{ detail: MetaCampaignDetail }>(`/admin/analytics/meta/campaigns/${encodeURIComponent(campaignId)}/ads${query.size ? `?${query.toString()}` : ""}`); setMetaCampaign(result.detail); } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo cargar el detalle de la campaña"); } finally { setMetaLoading(false); } }, [message, startDate, endDate]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadCampaigns(); }, [loadCampaigns]);
   useEffect(() => { if (analyticsTab === "meta") void loadMeta(); }, [analyticsTab, loadMeta]);
@@ -1180,9 +1189,10 @@ function AnalyticsDashboard({ canManage }: { canManage: boolean }) {
   if (analyticsTab === "meta") {
     const currency = metaData?.overview?.account.currency || "ARS";
     const formatMoney = (value: number) => new Intl.NumberFormat("es-AR", { style: "currency", currency, maximumFractionDigits: 2 }).format(value);
+    const visibleTotals = metaCampaign?.totals ?? metaData?.overview?.totals;
     const testConnection = async () => { try { const result = await requestJson<{ account: { name: string } }>("/admin/analytics/meta/test", { method: "POST" }); message.success(`Conexión operativa: ${result.account.name}`); await loadMeta(); } catch (error) { message.error(error instanceof Error ? error.message : "Falló la conexión con Meta Ads"); } };
     const columns: TableColumnsType<MetaAdsOverview["campaigns"][number]> = [
-      { title: "Campaña", dataIndex: "name", fixed: "left", width: 240 },
+      { title: metaCampaign ? "Anuncio / pieza" : "Campaña", dataIndex: "name", fixed: "left", width: 260, render: (value: string, record) => metaCampaign ? <Typography.Text strong>{value}</Typography.Text> : <Button type="link" style={{ padding: 0, height: "auto", textAlign: "left", whiteSpace: "normal" }} onClick={() => void loadMetaCampaign(record.id)}>{value}</Button> },
       { title: "Inversión", dataIndex: "spend", align: "right", render: (value: number) => formatMoney(value) },
       { title: "Impresiones", dataIndex: "impressions", align: "right" },
       { title: "Alcance", dataIndex: "reach", align: "right" },
@@ -1194,11 +1204,16 @@ function AnalyticsDashboard({ canManage }: { canManage: boolean }) {
       { title: "Costo por lead", dataIndex: "costPerLead", align: "right", render: (value: number) => value ? formatMoney(value) : "—" },
     ];
     return <Space direction="vertical" size="large" style={{ width: "100%" }}>{analyticsTabs}
-      <Flex align="end" gap={12} wrap="wrap"><div><Typography.Text type="secondary">Desde</Typography.Text><Input type="date" value={startDate} onChange={event => setStartDate(event.target.value)} style={{ display: "block", width: 170, marginTop: 4 }} /></div><div><Typography.Text type="secondary">Hasta</Typography.Text><Input type="date" value={endDate} onChange={event => setEndDate(event.target.value)} style={{ display: "block", width: 170, marginTop: 4 }} /></div><Button onClick={() => { setStartDate(""); setEndDate(""); }}>Últimos 30 días</Button><Button type="primary" loading={metaLoading} onClick={() => void loadMeta()}>Actualizar</Button><Button onClick={() => void testConnection()}>Probar conexión</Button></Flex>
+      <Flex align="end" gap={12} wrap="wrap"><div><Typography.Text type="secondary">Desde</Typography.Text><Input type="date" value={startDate} onChange={event => setStartDate(event.target.value)} style={{ display: "block", width: 170, marginTop: 4 }} /></div><div><Typography.Text type="secondary">Hasta</Typography.Text><Input type="date" value={endDate} onChange={event => setEndDate(event.target.value)} style={{ display: "block", width: 170, marginTop: 4 }} /></div><Button onClick={() => { setStartDate(""); setEndDate(""); setMetaCampaign(null); }}>Últimos 30 días</Button><Button type="primary" loading={metaLoading} onClick={() => metaCampaign ? void loadMetaCampaign(metaCampaign.campaign.id) : void loadMeta()}>Actualizar</Button><Button onClick={() => void testConnection()}>Probar conexión</Button></Flex>
       {metaLoading && !metaData ? <Spin /> : metaData?.status === "connected" && metaData.overview ? <>
         <Flex justify="space-between" align="center" gap={12} wrap="wrap"><div><Typography.Title level={4} style={{ margin: 0 }}>{metaData.overview.account.name}</Typography.Title><Typography.Text type="secondary">{metaData.overview.account.id} · {metaData.overview.period} · {metaData.overview.account.timezone}</Typography.Text></div><Tag color={metaData.overview.account.status === 1 ? "green" : "orange"}>{metaData.overview.account.status === 1 ? "Cuenta activa" : `Estado ${metaData.overview.account.status}`}</Tag></Flex>
-        <Flex gap={16} wrap="wrap">{[["Inversión", formatMoney(metaData.overview.totals.spend)], ["Impresiones", metaData.overview.totals.impressions], ["Alcance", metaData.overview.totals.reach], ["Clics", metaData.overview.totals.clicks], ["Leads", metaData.overview.totals.leads], ["Costo por lead", metaData.overview.totals.costPerLead ? formatMoney(metaData.overview.totals.costPerLead) : "—"]].map(([title, value]) => <div key={title as string} style={{ minWidth: 185, flex: "1 1 185px", padding: "22px 24px", border: "1px solid #e4ebf4", borderRadius: 14, background: "#fff" }}><Statistic title={title as string} value={value as string | number} /></div>)}</Flex>
-        <section className="config-section"><Typography.Title level={4}>Rendimiento por campaña</Typography.Title><Typography.Text type="secondary">Datos de solo lectura obtenidos directamente de la cuenta publicitaria de Meta.</Typography.Text><Table rowKey="id" size="small" columns={columns} dataSource={metaData.overview.campaigns} pagination={{ pageSize: 20 }} scroll={{ x: 1250 }} style={{ marginTop: 16 }} locale={{ emptyText: "No hubo actividad publicitaria en este período" }} /></section>
+        {visibleTotals && <Flex gap={16} wrap="wrap">{[["Inversión", formatMoney(visibleTotals.spend)], ["Impresiones", visibleTotals.impressions], ["Alcance", visibleTotals.reach], ["Clics", visibleTotals.clicks], ["Leads", visibleTotals.leads], ["Costo por lead", visibleTotals.costPerLead ? formatMoney(visibleTotals.costPerLead) : "—"]].map(([title, value]) => <div key={title as string} style={{ minWidth: 185, flex: "1 1 185px", padding: "22px 24px", border: "1px solid #e4ebf4", borderRadius: 14, background: "#fff" }}><Statistic title={title as string} value={value as string | number} /></div>)}</Flex>}
+        <section className="config-section">
+          {metaCampaign && <Button style={{ marginBottom: 12 }} onClick={() => setMetaCampaign(null)}>← Volver a todas las campañas</Button>}
+          <Typography.Title level={4}>{metaCampaign ? metaCampaign.campaign.name : "Rendimiento por campaña"}</Typography.Title>
+          <Typography.Text type="secondary">{metaCampaign ? "Rendimiento separado por cada anuncio o pieza de esta campaña." : "Seleccioná una campaña para actualizar las métricas superiores y ver su detalle por anuncio."}</Typography.Text>
+          <Table rowKey="id" size="small" loading={metaLoading} columns={columns} dataSource={metaCampaign ? metaCampaign.ads : metaData.overview.campaigns} pagination={{ pageSize: 20 }} scroll={{ x: 1250 }} style={{ marginTop: 16 }} locale={{ emptyText: metaCampaign ? "Esta campaña no tuvo anuncios con actividad en el período" : "No hubo actividad publicitaria en este período" }} />
+        </section>
       </> : <Result status="info" title="Meta Ads pendiente de conexión" subTitle={metaData?.message || "Probá la conexión para validar las credenciales de Meta."} extra={<Button type="primary" onClick={() => void testConnection()}>Probar conexión</Button>} />}
     </Space>;
   }
