@@ -33,18 +33,18 @@ function cosine(a: number[], b: number[]) {
 }
 
 function searchTerms(value: string) {
-  return new Set(value.toLocaleLowerCase("es").normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g)?.filter((term) => term.length > 3) ?? []);
+  const generic = new Set(["auto", "automovil", "galeno", "seguro", "seguros", "para", "esta", "este", "tengo", "tiene"]);
+  return new Set(value.toLocaleLowerCase("es").normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g)?.filter((term) => term.length > 3 && !generic.has(term)) ?? []);
 }
 
-function selectRelevantFaqs<T extends { question: string; answer: string }>(faqs: T[], question: string) {
+function findRelevantFaq<T extends { question: string; answer: string }>(faqs: T[], question: string) {
   const queryTerms = searchTerms(question);
   const ranked = faqs.map((faq) => {
     const terms = searchTerms(`${faq.question} ${faq.answer}`);
     const score = [...queryTerms].reduce((total, term) => total + (terms.has(term) ? 1 : 0), 0);
     return { faq, score };
   }).sort((a, b) => b.score - a.score);
-  const relevant = ranked.filter(({ score }) => score > 0).slice(0, 5).map(({ faq }) => faq);
-  return relevant.length ? relevant : ranked.slice(0, 3).map(({ faq }) => faq);
+  return ranked[0]?.score ? ranked[0].faq : null;
 }
 
 export function consumeRateLimit(key: string) {
@@ -70,31 +70,28 @@ export async function createDocument(input: { configurationIds: string[]; origin
 export async function answerQuestion(configuration: InstanceType<typeof AIConfiguration>, question: string) {
   await repairKnownAssistantConfiguration(configuration);
   const normalized = question.trim().toLocaleLowerCase("es").replace(/\s+/g, " ");
-  const cacheKey = `customer-answer-v7:${configuration.id}:${configuration.knowledgeVersion}:${createHash("sha256").update(normalized).digest("hex")}`;
+  const cacheKey = `customer-answer-v8:${configuration.id}:${configuration.knowledgeVersion}:${createHash("sha256").update(normalized).digest("hex")}`;
   const cached = cache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) return { ...cached, cacheHit: true, providerCalled: false };
+  if (cached && cached.expiresAt > Date.now()) return { ...cached, cacheHit: true, providerCalled: false, fallback: false };
+  const faqs = await Faq.find({ insurer: configuration.company, product: configuration.product, active: true }).select("question answer source").lean();
+  const faq = findRelevantFaq(faqs, question);
+  if (faq) {
+    const direct = { answer: faq.answer, sources: [{ document: faq.source || "Preguntas frecuentes" }] };
+    cache.set(cacheKey, { expiresAt: Date.now() + 24 * 60 * 60 * 1000, ...direct });
+    return { ...direct, cacheHit: false, providerCalled: false, fallback: false };
+  }
   const queryEmbedding = await geminiProvider.embed(question);
-  const [chunks, faqs] = await Promise.all([
-    AIChunk.find({ configurationIds: configuration._id }).lean(),
-    Faq.find({ insurer: configuration.company, product: configuration.product, active: true }).select("question answer source").lean(),
-  ]);
+  const chunks = await AIChunk.find({ configurationIds: configuration._id }).lean();
   // Insurance manuals often use very different wording from a customer's
   // question. Keep the best documentary matches and let the strict system
   // instruction decide whether the evidence actually answers the question.
   const matches = chunks.map((chunk) => ({ chunk, score: cosine(queryEmbedding, chunk.embedding) })).filter(({ score }) => score > 0.05).sort((a, b) => b.score - a.score).slice(0, 5);
-  if (!matches.length && !faqs.length) return { answer: configuration.fallbackMessage, sources: [], cacheHit: false, providerCalled: false, fallback: true };
-  const relevantFaqs = selectRelevantFaqs(faqs, question);
-  const manualContext = matches.map(({ chunk }) => `[${chunk.documentName}${chunk.page ? `, página ${chunk.page}` : ""}]\n${chunk.text}`);
-  const faqContext = relevantFaqs.map((faq) => `[${faq.source || "Preguntas frecuentes"}]\nPregunta: ${faq.question}\nRespuesta: ${faq.answer}`);
-  const context = [...manualContext, ...faqContext].join("\n\n");
+  if (!matches.length) return { answer: configuration.fallbackMessage, sources: [], cacheHit: false, providerCalled: false, fallback: true };
+  const context = matches.map(({ chunk }) => `[${chunk.documentName}${chunk.page ? `, página ${chunk.page}` : ""}]\n${chunk.text}`).join("\n\n");
   const defaultOutOfScopeMessage = `Puedo ayudarte únicamente con consultas sobre el seguro de ${configuration.product}.`;
   const outOfScopeMessage = !configuration.outOfScopeMessage || configuration.outOfScopeMessage === "Puedo ayudarte únicamente con consultas sobre este seguro." ? defaultOutOfScopeMessage : configuration.outOfScopeMessage;
   const answer = await geminiProvider.answer({ systemInstruction: `${baseInstruction}\nPrimero verificá si la pregunta trata sobre el seguro, el producto, sus coberturas, asistencia, contratación, siniestros o condiciones. Si no tiene relación con ese tema (por ejemplo fecha, clima, noticias, entretenimiento, tecnología o conversaciones generales), respondé exactamente este mensaje y nada más: ${outOfScopeMessage}\nInstrucciones adicionales de configuración (subordinadas a las anteriores): ${configuration.systemInstructions || "ninguna"}`, question, context, maxOutputTokens: 1000 });
-  const faqSources = [...new Set(relevantFaqs.map((faq) => faq.source || "Preguntas frecuentes"))];
-  const sources = [
-    ...matches.map(({ chunk }) => ({ document: chunk.documentName, ...(chunk.page ? { page: chunk.page } : {}) })),
-    ...faqSources.map((document) => ({ document })),
-  ];
+  const sources = matches.map(({ chunk }) => ({ document: chunk.documentName, ...(chunk.page ? { page: chunk.page } : {}) }));
   cache.set(cacheKey, { expiresAt: Date.now() + 24 * 60 * 60 * 1000, answer, sources });
   return { answer, sources, cacheHit: false, providerCalled: true, fallback: !answer };
 }
