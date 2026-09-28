@@ -77,7 +77,9 @@ export function createGalenoTransport(
       ? (url, init) => directFetch(url, { ...init, dispatcher } as ProxyRequestInit)
       : (url, init) => undiciFetch(url, { ...init, dispatcher } as Parameters<typeof undiciFetch>[1]) as unknown as Promise<Response>;
   }
-  if (!relayUrl && !relayToken) return fixie ?? ((url, init) => request(url, init));
+  if (!relayUrl && !relayToken) {
+    return fixie ?? ((url, init) => request(url, init));
+  }
   let relay: URL;
   try { relay = new URL(relayUrl!); }
   catch { throw new GalenoError("relay_configuration_invalid", "La conexión principal de Oracle no está configurada correctamente.", 503); }
@@ -95,8 +97,11 @@ export function createGalenoTransport(
       return response;
     } catch (error) {
       const detail = error instanceof Error ? error.message.slice(0, 120) : "unknown_error";
+      if (!fixie) {
+        console.error("Galeno Oracle relay failed", { errorName: error instanceof Error ? error.name : "UnknownError" });
+        throw new GalenoError("oracle_unavailable", "Oracle no respondió. Podés seleccionar Fixie manualmente desde la configuración de Auto.", 503);
+      }
       console.error("Galeno Oracle relay failed; using Fixie", { errorName: error instanceof Error ? error.name : "UnknownError" });
-      if (!fixie) throw new GalenoError("oracle_unavailable", "Oracle no respondió y Fixie no está configurado.", 503);
       await reportRoute("fixie", detail);
       return await fixie(url, init);
     }
@@ -128,10 +133,13 @@ function authenticationFailure(data: unknown) {
   return new GalenoError("authentication_failed", "Galeno no autorizó el acceso. Revisá usuario, contraseña, autorización del sandbox e IP habilitada.", 502, data);
 }
 
-export function createGalenoClient(settings: AutoConfiguration, transport: GalenoTransport = createGalenoTransport(), tokens: TokenStore = databaseTokens) {
+export function createGalenoClient(settings: AutoConfiguration, transport?: GalenoTransport, tokens: TokenStore = databaseTokens) {
   // Only the documented sandbox is permitted. Never send credentials to a configurable host.
   if (settings.environment !== "test" || settings.baseUrl !== GALENO_SANDBOX_URL) throw new GalenoError("sandbox_only", "Esta integración está habilitada únicamente para el sandbox de Galeno.", 503);
   if (!settings.username || !settings.passwordEncrypted || !canStoreAutoSecrets()) throw new GalenoError("credentials_missing", "Falta configurar el usuario y la contraseña de Galeno.", 503);
+  const activeTransport = transport ?? (settings.connectionRoute === "fixie"
+    ? createGalenoTransport(process.env.FIXIE_URL, undefined, "", "")
+    : createGalenoTransport("", undefined, process.env.GALENO_ORACLE_RELAY_URL, process.env.GALENO_ORACLE_RELAY_TOKEN));
   let password: string, basic: string;
   try {
     password = decryptAutoSecret(settings.passwordEncrypted);
@@ -142,7 +150,7 @@ export function createGalenoClient(settings: AutoConfiguration, transport: Galen
   const fingerprint = hash(`${settings.username}:${password}:${basic}`);
   async function jsonRequest(path: string, init: RequestInit) {
     try {
-      const response = await transport(`${GALENO_SANDBOX_URL}${path}`, { ...init, signal: AbortSignal.timeout(15000), redirect: "error" });
+      const response = await activeTransport(`${GALENO_SANDBOX_URL}${path}`, { ...init, signal: AbortSignal.timeout(15000), redirect: "error" });
       const data: unknown = await response.json().catch(() => null);
       return { response, data };
     } catch (error) {

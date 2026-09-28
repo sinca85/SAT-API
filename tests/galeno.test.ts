@@ -51,6 +51,10 @@ test("Oracle relay is primary and Fixie is used only when the relay is unavailab
   await transport(`${autoDefaults.baseUrl}/api/cotizadores/auto/marcas?rama=4`, { method: "GET" });
   assert.deepEqual(routes, ["oracle", "fixie"]);
   assert.equal(calls.length, 3);
+
+  const manualOracle = createGalenoTransport("", transportFetch, "https://147.15.21.186", "r".repeat(32), async () => {});
+  await assert.rejects(() => manualOracle(`${autoDefaults.baseUrl}/api/cotizadores/auto/marcas?rama=4`, { method: "GET" }), (error: Error) => error instanceof GalenoError && error.code === "oracle_unavailable");
+  assert.equal(calls.length, 4, "manual Oracle mode must not retry through Fixie");
 });
 
 test("Galeno shares tokens, refreshes once after 401 and sends credentials only to sandbox", async () => {

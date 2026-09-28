@@ -2,7 +2,7 @@ import { AutoSettings } from "../models/auto-settings.js";
 export const GALENO_SANDBOX_URL = "https://www.gsbeneficios.com.ar/WS-Seguros-desa";
 export const autoDefaults = {
   slug: "auto", sendQuoteEmail: true, sendCommercialEmailOnContract: true, contractRecipientEmail: "",
-  environment: "test", baseUrl: GALENO_SANDBOX_URL, username: "", producerCode: "", commercialPlanCode: "",
+  environment: "test", baseUrl: GALENO_SANDBOX_URL, connectionRoute: "oracle" as "oracle" | "fixie", username: "", producerCode: "", commercialPlanCode: "",
   billingModeCode: "", paymentConditionCode: "", paymentMethodCode: "", personTypeCode: "1", useTypeCode: "1",
   ivaCode: "5", iibbCode: "CF", analyticsEnabled: false,
 };

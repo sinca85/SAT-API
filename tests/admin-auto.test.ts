@@ -46,7 +46,7 @@ test("Auto settings: permissions, validation, encrypted secrets and isolated per
   await new Promise<void>(resolve => server.once("listening", resolve));
   const address = server.address() as { port: number };
   const request = (role?: string, body?: object) => fetch(`http://127.0.0.1:${address.port}/admin/auto`, { method: body ? "PATCH" : "GET", headers: { "Content-Type": "application/json", ...(role ? { "x-test-role": role } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  const payload = { sendQuoteEmail: false, sendCommercialEmailOnContract: true, contractRecipientEmail: "auto@example.com", environment: "test", baseUrl: "https://www.gsbeneficios.com.ar/WS-Seguros-desa", username: "test-user", producerCode: "123", commercialPlanCode: "TEST", billingModeCode: "01", paymentConditionCode: "001", paymentMethodCode: "3" };
+  const payload = { sendQuoteEmail: false, sendCommercialEmailOnContract: true, contractRecipientEmail: "auto@example.com", environment: "test", baseUrl: "https://www.gsbeneficios.com.ar/WS-Seguros-desa", connectionRoute: "oracle", username: "test-user", producerCode: "123", commercialPlanCode: "TEST", billingModeCode: "01", paymentConditionCode: "001", paymentMethodCode: "3" };
   try {
     assert.equal((await request()).status, 401);
     assert.equal((await request("none")).status, 403);

@@ -4,6 +4,7 @@ import { Alert, App, Button, Card, Input, Select, Space, Spin, Switch, Typograph
 type Settings = {
   sendQuoteEmail: boolean; sendCommercialEmailOnContract: boolean; contractRecipientEmail: string;
   environment: "test"; baseUrl: string; username: string; producerCode: string; commercialPlanCode: string;
+  connectionRoute: "oracle" | "fixie";
   billingModeCode: string; paymentConditionCode: string; paymentMethodCode: string; personTypeCode: string; useTypeCode: string; ivaCode: string; iibbCode: string; analyticsEnabled: boolean;
   hasPassword: boolean; hasBasicAuthorization: boolean; secretsStorageAvailable: boolean;
 };
@@ -63,8 +64,8 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
     if (!settings) return;
     setSaving(true);
     try {
-      const { sendQuoteEmail, sendCommercialEmailOnContract, contractRecipientEmail, environment, baseUrl, username, producerCode, commercialPlanCode, billingModeCode, paymentConditionCode, paymentMethodCode, personTypeCode, useTypeCode, ivaCode, iibbCode, analyticsEnabled } = settings;
-      const response = await fetch("/admin/auto", { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sendQuoteEmail, sendCommercialEmailOnContract, contractRecipientEmail, environment, baseUrl, username, producerCode, commercialPlanCode, billingModeCode, paymentConditionCode, paymentMethodCode, personTypeCode, useTypeCode, ivaCode, iibbCode, analyticsEnabled, ...(password ? { password } : {}), ...(basicAuthorization ? { basicAuthorization } : {}) }) });
+      const { sendQuoteEmail, sendCommercialEmailOnContract, contractRecipientEmail, environment, baseUrl, connectionRoute, username, producerCode, commercialPlanCode, billingModeCode, paymentConditionCode, paymentMethodCode, personTypeCode, useTypeCode, ivaCode, iibbCode, analyticsEnabled } = settings;
+      const response = await fetch("/admin/auto", { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sendQuoteEmail, sendCommercialEmailOnContract, contractRecipientEmail, environment, baseUrl, connectionRoute, username, producerCode, commercialPlanCode, billingModeCode, paymentConditionCode, paymentMethodCode, personTypeCode, useTypeCode, ivaCode, iibbCode, analyticsEnabled, ...(password ? { password } : {}), ...(basicAuthorization ? { basicAuthorization } : {}) }) });
       const data = await readResponse<Response>(response);
       setSettings(data.settings); setPassword(""); setBasicAuthorization(""); setCatalogAttempt(value => value + 1); message.success("Configuración de Auto guardada");
     } catch (err) { message.error(err instanceof Error ? err.message : "No se pudo guardar."); }
@@ -74,10 +75,10 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
     setConnectionTesting(true); setConnectionTest(null);
     try {
       const response = await fetch("/admin/auto/oracle-test", { method: "POST", credentials: "include" });
-      const data = await readResponse<{ ok: true; route: "oracle"; brands: Option[] }>(response);
+      const data = await readResponse<{ ok: true; route: "oracle" | "fixie"; brands: Option[] }>(response);
       setConnectionTest({ brands: data.brands });
-      setConnectionStatus(current => ({ ...current, activeRoute: "oracle", lastOracleSuccessAt: new Date().toISOString() }));
-      message.success(`Oracle respondió y Galeno devolvió ${data.brands.length} marcas`);
+      setConnectionStatus(current => ({ ...current, activeRoute: data.route, ...(data.route === "oracle" ? { lastOracleSuccessAt: new Date().toISOString() } : { lastFixieUseAt: new Date().toISOString() }) }));
+      message.success(`${data.route === "oracle" ? "Oracle" : "Fixie"} respondió y Galeno devolvió ${data.brands.length} marcas`);
     } catch (err) { message.error(err instanceof Error ? err.message : "No se pudo probar Oracle."); }
     finally { setConnectionTesting(false); }
   };
@@ -88,12 +89,12 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
   return <Space orientation="vertical" size="large" style={{ width: "100%" }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}><div><Typography.Title level={4} style={{ margin: 0 }}>Seguro Auto Galeno</Typography.Title><Typography.Text type="secondary">Acceso y valores predeterminados del cotizador de Auto.</Typography.Text></div><Button href="https://cotizar.seguroatiempo.com/auto" target="_blank" rel="noreferrer">Ver landing</Button></div>
     <Alert type="info" showIcon title="Sandbox de Galeno · Solo cotización" description="Guardá el acceso, cargá las opciones de tu cuenta y elegí los valores que se usarán para todas las cotizaciones. Los resultados pertenecen al entorno de prueba." />
-    {connectionStatus?.activeRoute === "fixie" && <Alert type="warning" showIcon title="Cotizando mediante Fixie" description={`Oracle no respondió y el respaldo está activo desde ${connectionStatus.switchedAt ? new Date(connectionStatus.switchedAt).toLocaleString("es-AR") : "la última consulta"}. ${connectionStatus.lastError || ""}`} />}
-    {connectionStatus?.activeRoute === "oracle" && <Alert type="success" showIcon title="Conexión principal operativa" description="Las consultas de Galeno están saliendo mediante la IP fija de Oracle." action={<Button disabled={!canManage} loading={connectionTesting} onClick={() => void testOracle()}>Probar conexión</Button>} />}
-    {!connectionStatus?.activeRoute || connectionStatus.activeRoute === "unconfigured" ? <Alert type="info" showIcon title="Ruta de Galeno todavía sin verificar" description="El estado se actualizará con la próxima consulta al sandbox." /> : null}
+    <Alert type={settings.connectionRoute === "oracle" ? "success" : "warning"} showIcon title={settings.connectionRoute === "oracle" ? "Salida configurada: Oracle" : "Salida configurada: Fixie"} description={settings.connectionRoute === "oracle" ? "Las consultas salen mediante la IP fija de Oracle. Si Oracle falla, no se cambia automáticamente a Fixie." : "Las consultas salen mediante Fixie hasta que cambies esta opción manualmente."} action={<Button disabled={!canManage} loading={connectionTesting} onClick={() => void testOracle()}>Probar conexión</Button>} />
     {connectionTest && <Alert type="success" showIcon title={`Prueba exitosa: ${connectionTest.brands.length} marcas recibidas desde Galeno`} description={<Typography.Paragraph style={{ margin: 0 }}>{connectionTest.brands.map(brand => brand.label).join(", ")}</Typography.Paragraph>} />}
     <Card title="Acceso al API de Galeno"><Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Text>Ambiente: <strong>Pruebas (sandbox)</strong></Typography.Text>
+      <label>IP de salida<Select style={{ width: "100%", marginTop: 8 }} disabled={disabled} value={settings.connectionRoute} options={[{ value: "oracle", label: "Oracle · IP fija principal" }, { value: "fixie", label: "Fixie · respaldo manual" }]} onChange={connectionRoute => { patch({ connectionRoute }); setConnectionTest(null); }} /></label>
+      <Typography.Text type="secondary">El cambio se aplica al guardar. No existe switcheo automático entre Oracle y Fixie.</Typography.Text>
       <label>Usuario de Galeno<Input disabled={disabled} autoComplete="off" value={settings.username} onChange={event => patch({ username: event.target.value })} /></label>
       <label>Contraseña de Galeno<Input.Password disabled={disabled || !settings.secretsStorageAvailable} autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} placeholder={settings.hasPassword ? "Guardada. Dejá vacío para conservarla." : "Ingresá la contraseña del API"} /></label>
       {!settings.secretsStorageAvailable && <Alert type="warning" title="Falta la clave de cifrado del servidor" description="Configurar GALENO_SETTINGS_ENCRYPTION_KEY para poder guardar las credenciales." />}

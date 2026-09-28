@@ -8,6 +8,7 @@ const autoSettingsSchema = new Schema({
   contractRecipientEmail: { type: String, default: "" },
   environment: { type: String, enum: ["test", "production"], default: "test" },
   baseUrl: { type: String, default: "https://www.gsbeneficios.com.ar/WS-Seguros-desa" },
+  connectionRoute: { type: String, enum: ["oracle", "fixie"], default: "oracle" },
   username: { type: String, default: "" },
   passwordEncrypted: { type: String, select: false },
   authorizationEncrypted: { type: String, select: false },
