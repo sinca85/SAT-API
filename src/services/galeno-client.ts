@@ -184,9 +184,12 @@ export function createGalenoClient(settings: AutoConfiguration, transport?: Gale
       const accessToken = await token();
       const { response, data } = await jsonRequest(path, { method: body ? "POST" : "GET", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
       if (response.status === 401) { await tokens.invalidate(key, accessToken); if (attempt === 0) continue; }
+      const result = data as { errorCode?: unknown; codigo?: unknown } | null;
+      const temporarilyUnavailable = response.status === 503 || String(result?.errorCode ?? "") === "503";
+      if (!body && temporarilyUnavailable && attempt === 0) { await sleep(500); continue; }
+      if (temporarilyUnavailable) throw new GalenoError("galeno_temporarily_unavailable", "El sandbox de Galeno está temporalmente no disponible (503). Oracle respondió correctamente; intentá nuevamente en unos minutos.", 503, data);
       if (!response.ok || data === null) throw new GalenoError("service_error", "Galeno no pudo completar la consulta. Revisá la configuración o intentá nuevamente.", 502, data);
-      const result = data as { errorCode?: unknown; codigo?: unknown };
-      if (result.errorCode || (result.codigo !== undefined && String(result.codigo) !== "0" && !Array.isArray(data))) throw new GalenoError("rejected", "Galeno rechazó la consulta. Revisá el plan y los parámetros configurados.", 502, data);
+      if (result?.errorCode || (result?.codigo !== undefined && String(result.codigo) !== "0" && !Array.isArray(data))) throw new GalenoError("rejected", "Galeno rechazó la consulta. Revisá el plan y los parámetros configurados.", 502, data);
       return data;
     }
     throw new GalenoError("authentication_failed", "No se pudo mantener la sesión con Galeno.");

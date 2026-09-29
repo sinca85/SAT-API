@@ -91,6 +91,26 @@ test("Authentication and network failures are sanitized; no automatic quote retr
   assert.equal(requests, 1);
 });
 
+test("Galeno 503 retries safe reads once on the same route and never retries quote submissions", async () => {
+  let reads = 0;
+  const readClient = createGalenoClient(settings, async url => {
+    if (String(url).endsWith("/seguridad/token")) return json({ access_token: "token", expires_in: 3600 });
+    reads++;
+    return reads === 1 ? json({ message: null, errorCode: 503 }, 503) : json([{ codigo: "1", descripcion: "Marca" }]);
+  }, memoryTokens());
+  assert.deepEqual(await readClient("/api/cotizadores/auto/marcas?rama=4"), [{ codigo: "1", descripcion: "Marca" }]);
+  assert.equal(reads, 2);
+
+  let quotes = 0;
+  const quoteClient = createGalenoClient(settings, async url => {
+    if (String(url).endsWith("/seguridad/token")) return json({ access_token: "token", expires_in: 3600 });
+    quotes++;
+    return json({ message: null, errorCode: 503 }, 503);
+  }, memoryTokens());
+  await assert.rejects(() => quoteClient("/api/cotizadores/auto/cotizar", { vehicle: 1 }), (error: Error) => error instanceof GalenoError && error.code === "galeno_temporarily_unavailable" && error.message.includes("Oracle respondió correctamente"));
+  assert.equal(quotes, 1);
+});
+
 test("Known Galeno authentication failures return actionable diagnostics", async () => {
   const disabled = createGalenoClient(settings, async () => json({ error_description: "Usuario no habilitado" }, 400), memoryTokens());
   await assert.rejects(() => disabled("/api/cotizadores/auto/marcas?rama=4"), (error: Error) => error instanceof GalenoError && error.code === "galeno_user_not_enabled" && error.message.includes("IP configurada"));
