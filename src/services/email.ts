@@ -131,3 +131,31 @@ export async function sendHomeContractNotificationEmail(lead: HomeContractLead, 
   const result = await response.json() as { id?: string };
   return { sent: true, id: result.id };
 }
+
+export async function sendAutoInterestNotificationEmail(input: {
+  fullName: string; email: string; phone: string; dni: string; dateOfBirth: string; address: string; postalCode: string;
+  licensePlate: string; engineNumber: string; chassisNumber: string; vehicle: string; coverageName: string;
+  monthlyPrice: number; deductible?: string;
+}, configuredRecipient?: string) {
+  const to = configuredRecipient?.trim() || await commercialRecipient();
+  if (!to) return { sent: false, reason: "commercial_email_not_configured" as const };
+  const from = await sender();
+  const rows = [
+    ["Vehículo", input.vehicle], ["Cobertura", input.coverageName], ["Cuota mensual", money(input.monthlyPrice)],
+    ["Franquicia", input.deductible || "No corresponde"], ["Nombre y apellido", input.fullName], ["DNI", input.dni],
+    ["Fecha de nacimiento", input.dateOfBirth], ["Domicilio", `${input.address} · CP ${input.postalCode}`],
+    ["Email", input.email], ["Celular", input.phone], ["Patente", input.licensePlate],
+    ["Motor", input.engineNumber], ["Chasis", input.chassisNumber],
+  ];
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      from, to: [to], subject: `Solicitud de emisión · ${input.fullName} · Galeno Auto`,
+      html: `<main style="font-family:Arial,sans-serif;max-width:620px;margin:32px auto;padding:30px;border:1px solid #dbe5f0;border-radius:14px;color:#17324d"><h1 style="color:#073ea7">Nueva solicitud · Galeno Auto</h1><p>El cliente completó sus datos para avanzar con la emisión.</p><table style="width:100%;border-collapse:collapse">${rows.map(([key,value]) => `<tr><td style="padding:8px;border-bottom:1px solid #e6edf5"><strong>${escapeHtml(key!)}</strong></td><td style="padding:8px;text-align:right;border-bottom:1px solid #e6edf5">${escapeHtml(value!)}</td></tr>`).join("")}</table></main>`,
+      text: rows.map(([key, value]) => `${key}: ${value}`).join("\n"),
+    }),
+  });
+  if (!response.ok) throw new Error(`Resend respondió ${response.status}: ${(await response.text()).slice(0, 500)}`);
+  return { sent: true, ...(await response.json() as { id?: string }) };
+}

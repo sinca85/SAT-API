@@ -7,6 +7,9 @@ import { canStoreAutoSecrets } from "../services/auto-secrets.js";
 import { locations, options, part, quoteAuto, quoteInput, versions } from "../services/galeno-quotes.js";
 import { autoDemoEnabled, demoCatalog, demoQuote } from "../services/auto-demo.js";
 import { Faq } from "../models/faq.js";
+import { SiteConfig } from "../models/site-config.js";
+import { AutoInterest } from "../models/auto-interest.js";
+import { sendAutoInterestNotificationEmail } from "../services/email.js";
 
 export const autoRouter = Router();
 autoRouter.use((_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
@@ -23,11 +26,13 @@ autoRouter.use((request, response, next) => {
 });
 autoRouter.get("/config", async (_request, response) => {
   const settings = await readAutoSettings();
+  const whatsapp = await SiteConfig.findOne({ type: "whatsapp", active: true }).select("value").lean();
+  const whatsappNumber = whatsapp?.value?.replace(/\D/g, "") || "";
   const analytics = settings.analyticsEnabled ? await AnalyticsSettings.findOne({ key: "default" }).select("measurementId").lean() : null;
   const measurementId = analytics?.measurementId || "G-WSQ0X7LXTC";
   const demo = autoDemoEnabled();
   response.json({ environment: "test", mode: demo ? "demo" : "galeno", ready: demo || (quoteConfigured(settings) && canStoreAutoSecrets()), personType: settings.personTypeCode,
-    analytics: { enabled: settings.analyticsEnabled === true, ...(settings.analyticsEnabled ? { measurementId, metaPixelId: "1378259864357969" } : {}) },
+    whatsappUrl: whatsappNumber ? `https://wa.me/${whatsappNumber}` : "", analytics: { enabled: settings.analyticsEnabled === true, ...(settings.analyticsEnabled ? { measurementId, metaPixelId: "1378259864357969" } : {}) },
   });
 });
 autoRouter.get("/faqs", async (_request, response) => {
@@ -56,6 +61,26 @@ autoRouter.post("/quote", async (request, response) => {
   if (autoDemoEnabled()) { response.json({ quote: demoQuote(input) }); return; }
   const settings = await readAutoSettings();
   response.json({ quote: await quoteAuto(createGalenoClient(settings), settings, input) });
+});
+const interestInput = z.object({
+  submissionId: z.string().uuid(), requestId: z.string().max(120), vehicle: z.string().min(1).max(240),
+  coverageCode: z.string().min(1).max(80), coverageName: z.string().min(1).max(180), monthlyPrice: z.number().finite().nonnegative(), deductible: z.string().max(180),
+  firstName: z.string().trim().min(1).max(80), lastName: z.string().trim().min(1).max(80), dni: z.string().regex(/^\d{6,8}$/),
+  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), address: z.string().trim().min(3).max(180), postalCode: z.string().trim().min(4).max(8),
+  email: z.string().email().max(254), phone: z.string().regex(/^\+?[\d\s()-]{8,24}$/), licensePlate: z.string().trim().min(5).max(10),
+  engineNumber: z.string().trim().min(4).max(40), chassisNumber: z.string().trim().min(6).max(40),
+}).strict();
+autoRouter.post("/interest", async (request, response) => {
+  const input = interestInput.parse(request.body);
+  const existing = await AutoInterest.findOne({ submissionId: input.submissionId });
+  if (existing) { response.json({ interestId: existing.id }); return; }
+  const interest = await AutoInterest.create(input);
+  const settings = await readAutoSettings();
+  if (settings.sendCommercialEmailOnContract) {
+    try { await sendAutoInterestNotificationEmail({ ...input, fullName: `${input.firstName} ${input.lastName}` }, settings.contractRecipientEmail); }
+    catch (error) { console.error("Could not send auto interest notification", error); }
+  }
+  response.status(201).json({ interestId: interest.id });
 });
 autoRouter.use((error: unknown, _request: import("express").Request, response: import("express").Response, next: import("express").NextFunction) => {
   if (error instanceof GalenoError) { response.status(error.status).json({ error: error.code === "credentials_missing" || error.code === "credentials_unavailable" ? "El cotizador todavía no está disponible. Intentá más tarde." : error.message, code: error.code }); return; }
