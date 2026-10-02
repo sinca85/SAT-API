@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from "undici";
 import { GalenoSession } from "../models/galeno-session.js";
 import { canStoreAutoSecrets, decryptAutoSecret, encryptAutoSecret } from "./auto-secrets.js";
-import { GALENO_SANDBOX_URL, type AutoConfiguration } from "./auto-settings.js";
+import { GALENO_PRODUCTION_URL, GALENO_SANDBOX_URL, type AutoConfiguration } from "./auto-settings.js";
 import { sandboxBasicAuthorization } from "./galeno-sandbox.js";
 import { recordGalenoRoute, type GalenoRoute } from "./galeno-route-status.js";
 
@@ -66,6 +66,7 @@ export function createGalenoTransport(
   relayUrl = process.env.GALENO_ORACLE_RELAY_URL,
   relayToken = process.env.GALENO_ORACLE_RELAY_TOKEN,
   reportRoute: (route: GalenoRoute, detail?: string) => Promise<void> = recordGalenoRoute,
+  allowedBaseUrl = GALENO_SANDBOX_URL,
 ): GalenoTransport {
   const request: GalenoTransport = directFetch
     ? (url, init) => directFetch(url, init)
@@ -88,7 +89,8 @@ export function createGalenoTransport(
   }
   return async (url, init) => {
     const upstream = new URL(String(url));
-    if (upstream.origin !== new URL(GALENO_SANDBOX_URL).origin || !upstream.pathname.startsWith("/WS-Seguros-desa/")) throw new GalenoError("invalid_endpoint", "Servicio no habilitado.", 400);
+    const allowed = new URL(allowedBaseUrl);
+    if (upstream.origin !== allowed.origin || !upstream.pathname.startsWith(`${allowed.pathname}/`)) throw new GalenoError("invalid_endpoint", "Servicio no habilitado.", 400);
     const relayTarget = new URL(`/relay${upstream.pathname}${upstream.search}`, relay);
     try {
       const response = await request(relayTarget.toString(), { ...init, headers: { ...Object.fromEntries(new Headers(init.headers).entries()), "x-relay-token": relayToken } });
@@ -120,37 +122,39 @@ function safeTransportError(error: unknown) {
   };
 }
 
-function authenticationFailure(data: unknown) {
+function authenticationFailure(data: unknown, environment: AutoConfiguration["environment"]) {
+  const label = environment === "production" ? "producción" : "sandbox";
   const description = data && typeof data === "object" && "error_description" in data
     ? String((data as { error_description?: unknown }).error_description ?? "").trim().toLocaleLowerCase("es")
     : "";
   if (description.includes("usuario no habilitado")) {
-    return new GalenoError("galeno_user_not_enabled", "Galeno respondió: usuario no habilitado. Pediles que asocien al usuario del sandbox la IP configurada.", 502, data);
+    return new GalenoError("galeno_user_not_enabled", `Galeno respondió: usuario no habilitado. Pediles que asocien al usuario de ${label} la IP configurada.`, 502, data);
   }
   if (description.includes("usuario no registrado")) {
-    return new GalenoError("galeno_user_not_registered", "Galeno respondió: usuario no registrado. Revisá el usuario y la contraseña del sandbox.", 502, data);
+    return new GalenoError("galeno_user_not_registered", `Galeno respondió: usuario no registrado. Revisá el usuario y la contraseña de ${label}.`, 502, data);
   }
-  return new GalenoError("authentication_failed", "Galeno no autorizó el acceso. Revisá usuario, contraseña, autorización del sandbox e IP habilitada.", 502, data);
+  return new GalenoError("authentication_failed", `Galeno no autorizó el acceso. Revisá usuario, contraseña, autorización de ${label} e IP habilitada.`, 502, data);
 }
 
 export function createGalenoClient(settings: AutoConfiguration, transport?: GalenoTransport, tokens: TokenStore = databaseTokens) {
-  // Only the documented sandbox is permitted. Never send credentials to a configurable host.
-  if (settings.environment !== "test" || settings.baseUrl !== GALENO_SANDBOX_URL) throw new GalenoError("sandbox_only", "Esta integración está habilitada únicamente para el sandbox de Galeno.", 503);
+  const baseUrl = settings.environment === "production" ? GALENO_PRODUCTION_URL : GALENO_SANDBOX_URL;
+  if (settings.baseUrl !== baseUrl) throw new GalenoError("invalid_environment_endpoint", "La URL configurada no corresponde al ambiente seleccionado.", 503);
   if (!settings.username || !settings.passwordEncrypted || !canStoreAutoSecrets()) throw new GalenoError("credentials_missing", "Falta configurar el usuario y la contraseña de Galeno.", 503);
   const activeTransport = transport ?? (settings.connectionRoute === "fixie"
     ? createGalenoTransport(process.env.FIXIE_URL, undefined, "", "")
-    : createGalenoTransport("", undefined, process.env.GALENO_ORACLE_RELAY_URL, process.env.GALENO_ORACLE_RELAY_TOKEN));
+    : createGalenoTransport("", undefined, process.env.GALENO_ORACLE_RELAY_URL, process.env.GALENO_ORACLE_RELAY_TOKEN, recordGalenoRoute, baseUrl));
   let password: string, basic: string;
   try {
     password = decryptAutoSecret(settings.passwordEncrypted);
-    basic = settings.authorizationEncrypted ? decryptAutoSecret(settings.authorizationEncrypted) : sandboxBasicAuthorization;
+    basic = settings.authorizationEncrypted ? decryptAutoSecret(settings.authorizationEncrypted) : settings.environment === "test" ? sandboxBasicAuthorization : "";
   } catch { throw new GalenoError("credentials_unavailable", "No se pudieron recuperar las credenciales de Galeno. Revisá la clave de cifrado del servidor.", 503); }
   basic = basic.replace(/^Basic\s+/i, "");
-  const key = hash(`${GALENO_SANDBOX_URL}:${settings.username}`);
+  if (!basic) throw new GalenoError("credentials_missing", "Falta configurar la autorización Basic del ambiente de producción.", 503);
+  const key = hash(`${baseUrl}:${settings.username}`);
   const fingerprint = hash(`${settings.username}:${password}:${basic}`);
   async function jsonRequest(path: string, init: RequestInit) {
     try {
-      const response = await activeTransport(`${GALENO_SANDBOX_URL}${path}`, { ...init, signal: AbortSignal.timeout(15000), redirect: "error" });
+      const response = await activeTransport(`${baseUrl}${path}`, { ...init, signal: AbortSignal.timeout(15000), redirect: "error" });
       const data: unknown = await response.json().catch(() => null);
       return { response, data };
     } catch (error) {
@@ -170,7 +174,7 @@ export function createGalenoClient(settings: AutoConfiguration, transport?: Gale
         if (existing) return existing;
         const { response, data } = await jsonRequest("/seguridad/token", { method: "POST", headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "password", username: settings.username, password }).toString() });
         const result = data as { access_token?: unknown; expires_in?: unknown } | null;
-        if (!response.ok || typeof result?.access_token !== "string") throw authenticationFailure(data);
+        if (!response.ok || typeof result?.access_token !== "string") throw authenticationFailure(data, settings.environment);
         const seconds = Number(result.expires_in);
         await tokens.save(key, owner, fingerprint, result.access_token, Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, 86400) : 300);
         return result.access_token;
@@ -187,7 +191,7 @@ export function createGalenoClient(settings: AutoConfiguration, transport?: Gale
       const result = data as { errorCode?: unknown; codigo?: unknown } | null;
       const temporarilyUnavailable = response.status === 503 || String(result?.errorCode ?? "") === "503";
       if (!body && temporarilyUnavailable && attempt === 0) { await sleep(500); continue; }
-      if (temporarilyUnavailable) throw new GalenoError("galeno_temporarily_unavailable", "El sandbox de Galeno está temporalmente no disponible (503). Oracle respondió correctamente; intentá nuevamente en unos minutos.", 503, data);
+      if (temporarilyUnavailable) throw new GalenoError("galeno_temporarily_unavailable", `El ambiente de ${settings.environment === "production" ? "producción" : "sandbox"} de Galeno está temporalmente no disponible (503). Oracle respondió correctamente; intentá nuevamente en unos minutos.`, 503, data);
       if (!response.ok || data === null) throw new GalenoError("service_error", "Galeno no pudo completar la consulta. Revisá la configuración o intentá nuevamente.", 502, data);
       if (result?.errorCode || (result?.codigo !== undefined && String(result.codigo) !== "0" && !Array.isArray(data))) throw new GalenoError("rejected", "Galeno rechazó la consulta. Revisá el plan y los parámetros configurados.", 502, data);
       return data;

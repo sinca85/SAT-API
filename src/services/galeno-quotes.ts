@@ -87,7 +87,7 @@ export async function quoteAuto(client: GalenoClient, settings: AutoConfiguratio
     bonificacionPorc: settings.commercialDiscountEnabled ? settings.commercialDiscountPercent : 0, recargoAdministrativoPorc: 0,
   };
   const raw = await client("/api/cotizadores/auto/cotizar", payload);
-  return { ...normalizeQuote(raw), billing: {
+  return { ...normalizeQuote(raw), environment: settings.environment, billing: {
     mode: catalogs.billingModes.find(option => option.value === settings.billingModeCode)!.label,
     condition: catalogs.paymentConditions.find(option => option.value === settings.paymentConditionCode)!.label,
     method: catalogs.paymentMethods.find(option => option.value === settings.paymentMethodCode)!.label,

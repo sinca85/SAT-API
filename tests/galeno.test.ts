@@ -78,8 +78,28 @@ test("Galeno shares tokens, refreshes once after 401 and sends credentials only 
   await Promise.all([first("/api/cotizadores/auto/marcas?rama=4"), second("/api/cotizadores/auto/marcas?rama=4")]);
   assert.equal(tokens, 1); assert.equal(authorized, 2);
   invalidateNext = true; await first("/api/cotizadores/auto/marcas?rama=4"); assert.equal(tokens, 2);
-  assert.throws(() => createGalenoClient({ ...settings, baseUrl: "https://attacker.example" }, transport, store), /únicamente/);
+  assert.throws(() => createGalenoClient({ ...settings, baseUrl: "https://attacker.example" }, transport, store), /no corresponde/);
   await assert.rejects(() => first("/api/cotizadores/auto/../emitir"), /no habilitado/);
+});
+
+test("Production uses the fixed production endpoint and its own credentials", async () => {
+  const production = { ...settings, environment: "production" as const, baseUrl: "https://www.gsbeneficios.com.ar/WS-Seguros", username: "prod-user", passwordEncrypted: encryptAutoSecret("prod-password"), authorizationEncrypted: encryptAutoSecret("prod-basic") };
+  const urls: string[] = [];
+  const client = createGalenoClient(production, async (url, init) => {
+    urls.push(String(url));
+    assert.ok(String(url).startsWith("https://www.gsbeneficios.com.ar/WS-Seguros/"));
+    if (String(url).endsWith("/seguridad/token")) {
+      assert.equal(new Headers(init?.headers).get("Authorization"), "Basic prod-basic");
+      const body = new URLSearchParams(String(init?.body));
+      assert.equal(body.get("username"), "prod-user");
+      assert.equal(body.get("password"), "prod-password");
+      return json({ access_token: "prod-token", expires_in: 3600 });
+    }
+    return json([{ codigo: "1", descripcion: "Marca" }]);
+  }, memoryTokens());
+  await client("/api/cotizadores/auto/marcas?rama=4");
+  assert.equal(urls.length, 2);
+  assert.throws(() => createGalenoClient({ ...production, baseUrl: "https://attacker.example" }), /no corresponde/);
 });
 
 test("Authentication and network failures are sanitized; no automatic quote retry on timeout", async () => {

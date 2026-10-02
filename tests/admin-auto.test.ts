@@ -46,7 +46,7 @@ test("Auto settings: permissions, validation, encrypted secrets and isolated per
   await new Promise<void>(resolve => server.once("listening", resolve));
   const address = server.address() as { port: number };
   const request = (role?: string, body?: object) => fetch(`http://127.0.0.1:${address.port}/admin/auto`, { method: body ? "PATCH" : "GET", headers: { "Content-Type": "application/json", ...(role ? { "x-test-role": role } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  const payload = { sendQuoteEmail: false, sendCommercialEmailOnContract: true, contractRecipientEmail: "auto@example.com", environment: "test", baseUrl: "https://www.gsbeneficios.com.ar/WS-Seguros-desa", connectionRoute: "oracle", username: "test-user", producerCode: "123", commercialPlanCode: "TEST", commercialDiscountEnabled: true, commercialDiscountPercent: 40, billingModeCode: "01", paymentConditionCode: "001", paymentMethodCode: "3" };
+  const payload = { sendQuoteEmail: false, sendCommercialEmailOnContract: true, contractRecipientEmail: "auto@example.com", environment: "test", connectionRoute: "oracle", sandboxUsername: "test-user", productionUsername: "prod-user", producerCode: "123", commercialPlanCode: "TEST", commercialDiscountEnabled: true, commercialDiscountPercent: 40, billingModeCode: "01", paymentConditionCode: "001", paymentMethodCode: "3" };
   try {
     assert.equal((await request()).status, 401);
     assert.equal((await request("none")).status, 403);
@@ -59,18 +59,20 @@ test("Auto settings: permissions, validation, encrypted secrets and isolated per
     assert.equal(analyticsReads, 0);
     assert.equal(initial.ready, false);
     delete process.env.GALENO_SETTINGS_ENCRYPTION_KEY;
-    assert.equal((await request("manage", { ...payload, password: "test-password" })).status, 503);
+    assert.equal((await request("manage", { ...payload, sandboxPassword: "test-password" })).status, 503);
     assert.equal(writes, 0);
     assert.equal((await request("manage", { ...payload, contractRecipientEmail: "not-an-email" })).status, 400);
     assert.equal((await request("manage", { ...payload, commercialDiscountPercent: 101 })).status, 400);
     assert.equal((await request("manage", { ...payload, commercialDiscountPercent: 0 })).status, 400);
     assert.equal((await request("manage", { ...payload, baseUrl: "http://example.com" })).status, 400);
     process.env.GALENO_SETTINGS_ENCRYPTION_KEY = key;
-    const saved = await request("manage", { ...payload, password: "test-password", basicAuthorization: "test-basic" });
+    const saved = await request("manage", { ...payload, sandboxPassword: "test-password", sandboxBasicAuthorization: "test-basic", productionPassword: "prod-password", productionBasicAuthorization: "prod-basic" });
     assert.equal(saved.status, 200);
     const output = await saved.json();
-    assert.equal(output.settings.hasPassword, true);
-    assert.equal(output.settings.hasBasicAuthorization, true);
+    assert.equal(output.settings.hasSandboxPassword, true);
+    assert.equal(output.settings.hasSandboxBasicAuthorization, true);
+    assert.equal(output.settings.hasProductionPassword, true);
+    assert.equal(output.settings.hasProductionBasicAuthorization, true);
     assert.equal(JSON.stringify(output).includes("test-password"), false);
     assert.equal("passwordEncrypted" in output.settings, false);
     const encrypted = String(stored!.passwordEncrypted);
@@ -79,7 +81,7 @@ test("Auto settings: permissions, validation, encrypted secrets and isolated per
     const decipher = createDecipheriv("aes-256-gcm", Buffer.from(key, "hex"), Buffer.from(iv, "base64"));
     decipher.setAuthTag(Buffer.from(tag, "base64"));
     assert.equal(Buffer.concat([decipher.update(Buffer.from(value, "base64")), decipher.final()]).toString(), "test-password");
-    assert.equal((await request("manage", { ...payload, password: "" })).status, 200);
+    assert.equal((await request("manage", { ...payload, sandboxPassword: "" })).status, 200);
     assert.equal(stored!.passwordEncrypted, encrypted);
     const read = await (await request("view")).json();
     assert.equal(read.settings.sendQuoteEmail, false);

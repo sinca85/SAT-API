@@ -3,11 +3,11 @@ import { Alert, App, Button, Card, Input, InputNumber, Select, Space, Spin, Swit
 
 type Settings = {
   sendQuoteEmail: boolean; sendCommercialEmailOnContract: boolean; contractRecipientEmail: string;
-  environment: "test"; baseUrl: string; username: string; producerCode: string; commercialPlanCode: string;
+  environment: "test" | "production"; baseUrl: string; sandboxUsername: string; productionUsername: string; producerCode: string; commercialPlanCode: string;
   commercialDiscountEnabled: boolean; commercialDiscountPercent: number;
   connectionRoute: "oracle" | "fixie";
   billingModeCode: string; paymentConditionCode: string; paymentMethodCode: string; personTypeCode: string; useTypeCode: string; ivaCode: string; iibbCode: string; analyticsEnabled: boolean;
-  hasPassword: boolean; hasBasicAuthorization: boolean; secretsStorageAvailable: boolean;
+  hasSandboxPassword: boolean; hasSandboxBasicAuthorization: boolean; hasProductionPassword: boolean; hasProductionBasicAuthorization: boolean; secretsStorageAvailable: boolean;
 };
 type Option = { value: string; label: string };
 type Catalogs = { plans: (Option & { producerCode: string })[]; people: Option[]; uses: Option[]; iva: Option[]; iibb: Option[]; billingModes: Option[]; paymentConditions: Option[]; paymentMethods: Option[] };
@@ -27,8 +27,10 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [commercialEmail, setCommercialEmail] = useState("");
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(null);
-  const [password, setPassword] = useState("");
-  const [basicAuthorization, setBasicAuthorization] = useState("");
+  const [sandboxPassword, setSandboxPassword] = useState("");
+  const [productionPassword, setProductionPassword] = useState("");
+  const [sandboxBasicAuthorization, setSandboxBasicAuthorization] = useState("");
+  const [productionBasicAuthorization, setProductionBasicAuthorization] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -47,7 +49,7 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
   }, [attempt]);
   const plan = settings?.commercialPlanCode;
   const billing = settings?.billingModeCode;
-  const hasPassword = settings?.hasPassword;
+  const hasPassword = settings?.environment === "production" ? settings.hasProductionPassword : settings?.hasSandboxPassword;
   const storage = settings?.secretsStorageAvailable;
   useEffect(() => {
     setCatalogs(null); setCatalogError("");
@@ -65,10 +67,10 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
     if (!settings) return;
     setSaving(true);
     try {
-      const { sendQuoteEmail, sendCommercialEmailOnContract, contractRecipientEmail, environment, baseUrl, connectionRoute, username, producerCode, commercialPlanCode, commercialDiscountEnabled, commercialDiscountPercent, billingModeCode, paymentConditionCode, paymentMethodCode, personTypeCode, useTypeCode, ivaCode, iibbCode, analyticsEnabled } = settings;
-      const response = await fetch("/admin/auto", { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sendQuoteEmail, sendCommercialEmailOnContract, contractRecipientEmail, environment, baseUrl, connectionRoute, username, producerCode, commercialPlanCode, commercialDiscountEnabled, commercialDiscountPercent, billingModeCode, paymentConditionCode, paymentMethodCode, personTypeCode, useTypeCode, ivaCode, iibbCode, analyticsEnabled, ...(password ? { password } : {}), ...(basicAuthorization ? { basicAuthorization } : {}) }) });
+      const { sendQuoteEmail, sendCommercialEmailOnContract, contractRecipientEmail, environment, connectionRoute, sandboxUsername, productionUsername, producerCode, commercialPlanCode, commercialDiscountEnabled, commercialDiscountPercent, billingModeCode, paymentConditionCode, paymentMethodCode, personTypeCode, useTypeCode, ivaCode, iibbCode, analyticsEnabled } = settings;
+      const response = await fetch("/admin/auto", { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sendQuoteEmail, sendCommercialEmailOnContract, contractRecipientEmail, environment, connectionRoute, sandboxUsername, productionUsername, producerCode, commercialPlanCode, commercialDiscountEnabled, commercialDiscountPercent, billingModeCode, paymentConditionCode, paymentMethodCode, personTypeCode, useTypeCode, ivaCode, iibbCode, analyticsEnabled, ...(sandboxPassword ? { sandboxPassword } : {}), ...(productionPassword ? { productionPassword } : {}), ...(sandboxBasicAuthorization ? { sandboxBasicAuthorization } : {}), ...(productionBasicAuthorization ? { productionBasicAuthorization } : {}) }) });
       const data = await readResponse<Response>(response);
-      setSettings(data.settings); setPassword(""); setBasicAuthorization(""); setCatalogAttempt(value => value + 1); message.success("Configuración de Auto guardada");
+      setSettings(data.settings); setSandboxPassword(""); setProductionPassword(""); setSandboxBasicAuthorization(""); setProductionBasicAuthorization(""); setCatalogAttempt(value => value + 1); message.success("Configuración de Auto guardada");
     } catch (err) { message.error(err instanceof Error ? err.message : "No se pudo guardar."); }
     finally { setSaving(false); }
   };
@@ -89,23 +91,32 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
   const field = (key: "personTypeCode" | "useTypeCode" | "ivaCode" | "iibbCode" | "billingModeCode" | "paymentConditionCode" | "paymentMethodCode", label: string, choices: Option[] = []) => <div style={{ display: "grid", gap: 8 }} key={key}><label htmlFor={`auto-${key}`}>{label}</label><Select id={`auto-${key}`} aria-label={label} showSearch optionFilterProp="label" disabled={disabled || catalogLoading || !choices.length} loading={catalogLoading} value={settings[key] || undefined} placeholder="Seleccioná una opción" options={choices.length ? choices : settings[key] ? [{ value: settings[key], label: `Código guardado: ${settings[key]}` }] : []} onChange={value => patch({ [key]: value, ...(key === "billingModeCode" ? { paymentConditionCode: "", paymentMethodCode: "" } : {}) })} /></div>;
   return <Space orientation="vertical" size="large" style={{ width: "100%" }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}><div><Typography.Title level={4} style={{ margin: 0 }}>Seguro Auto Galeno</Typography.Title><Typography.Text type="secondary">Acceso y valores predeterminados del cotizador de Auto.</Typography.Text></div><Button href="https://cotizar.seguroatiempo.com/auto" target="_blank" rel="noreferrer">Ver landing</Button></div>
-    <Alert type="info" showIcon title="Sandbox de Galeno · Solo cotización" description="Guardá el acceso, cargá las opciones de tu cuenta y elegí los valores que se usarán para todas las cotizaciones. Los resultados pertenecen al entorno de prueba." />
+    <Alert type={settings.environment === "production" ? "warning" : "info"} showIcon title={settings.environment === "production" ? "Galeno Producción activo" : "Galeno Sandbox activo"} description={settings.environment === "production" ? "Las consultas reales de la landing se enviarán al API productivo con sus credenciales propias." : "Las consultas pertenecen al entorno de prueba y no generan operaciones productivas."} />
     <Alert type={settings.connectionRoute === "oracle" ? "success" : "warning"} showIcon title={settings.connectionRoute === "oracle" ? "Salida configurada: Oracle" : "Salida configurada: Fixie"} description={settings.connectionRoute === "oracle" ? "Las consultas salen mediante la IP fija de Oracle. Si Oracle falla, no se cambia automáticamente a Fixie." : "Las consultas salen mediante Fixie hasta que cambies esta opción manualmente."} action={<Button disabled={!canManage} loading={connectionTesting} onClick={() => void testOracle()}>Probar conexión</Button>} />
     {connectionTest && <Alert type="success" showIcon title={`Prueba exitosa: ${connectionTest.brands.length} marcas recibidas desde Galeno`} description={<Typography.Paragraph style={{ margin: 0 }}>{connectionTest.brands.map(brand => brand.label).join(", ")}</Typography.Paragraph>} />}
     <Card title="Acceso al API de Galeno"><Space orientation="vertical" size="middle" style={{ width: "100%" }}>
-      <Typography.Text>Ambiente: <strong>Pruebas (sandbox)</strong></Typography.Text>
+      <div style={{ display: "grid", gap: 8 }}><label>Ambiente activo</label><Space><Switch disabled={disabled} checked={settings.environment === "production"} checkedChildren="PROD" unCheckedChildren="TEST" onChange={production => { patch({ environment: production ? "production" : "test", baseUrl: production ? "https://www.gsbeneficios.com.ar/WS-Seguros" : "https://www.gsbeneficios.com.ar/WS-Seguros-desa" }); setCatalogs(null); setConnectionTest(null); }} /><strong>{settings.environment === "production" ? "Producción" : "Sandbox"}</strong></Space></div>
+      <Typography.Text type="secondary">El switch se aplica al guardar. Cada ambiente conserva su propio usuario, contraseña y Authorization Basic.</Typography.Text>
       <label>IP de salida<Select style={{ width: "100%", marginTop: 8 }} disabled={disabled} value={settings.connectionRoute} options={[{ value: "oracle", label: "Oracle · IP fija principal" }, { value: "fixie", label: "Fixie · respaldo manual" }]} onChange={connectionRoute => { patch({ connectionRoute }); setConnectionTest(null); }} /></label>
       <Typography.Text type="secondary">El cambio se aplica al guardar. No existe switcheo automático entre Oracle y Fixie.</Typography.Text>
-      <label>Usuario de Galeno<Input disabled={disabled} autoComplete="off" value={settings.username} onChange={event => patch({ username: event.target.value })} /></label>
-      <label>Contraseña de Galeno<Input.Password disabled={disabled || !settings.secretsStorageAvailable} autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} placeholder={settings.hasPassword ? "Guardada. Dejá vacío para conservarla." : "Ingresá la contraseña del API"} /></label>
+      <Card size="small" title="Credenciales de sandbox"><Space orientation="vertical" style={{ width: "100%" }}>
+        <label>Usuario de sandbox<Input disabled={disabled} autoComplete="off" value={settings.sandboxUsername} onChange={event => patch({ sandboxUsername: event.target.value })} /></label>
+        <label>Contraseña de sandbox<Input.Password disabled={disabled || !settings.secretsStorageAvailable} autoComplete="new-password" value={sandboxPassword} onChange={event => setSandboxPassword(event.target.value)} placeholder={settings.hasSandboxPassword ? "Guardada. Dejá vacío para conservarla." : "Ingresá la contraseña de sandbox"} /></label>
+        <label>Authorization Basic de sandbox<Input.Password disabled={disabled || !settings.secretsStorageAvailable} autoComplete="new-password" value={sandboxBasicAuthorization} onChange={event => setSandboxBasicAuthorization(event.target.value)} placeholder={settings.hasSandboxBasicAuthorization ? "Guardada. Dejá vacío para conservarla." : "Opcional: se usa el valor documentado por Galeno"} /></label>
+      </Space></Card>
+      <Card size="small" title="Credenciales de producción"><Space orientation="vertical" style={{ width: "100%" }}>
+        <label>Usuario de producción<Input disabled={disabled} autoComplete="off" value={settings.productionUsername} onChange={event => patch({ productionUsername: event.target.value })} /></label>
+        <label>Contraseña de producción<Input.Password disabled={disabled || !settings.secretsStorageAvailable} autoComplete="new-password" value={productionPassword} onChange={event => setProductionPassword(event.target.value)} placeholder={settings.hasProductionPassword ? "Guardada. Dejá vacío para conservarla." : "Ingresá la contraseña de producción"} /></label>
+        <label>Authorization Basic de producción<Input.Password disabled={disabled || !settings.secretsStorageAvailable} autoComplete="new-password" value={productionBasicAuthorization} onChange={event => setProductionBasicAuthorization(event.target.value)} placeholder={settings.hasProductionBasicAuthorization ? "Guardada. Dejá vacío para conservarla." : "Ingresá el nuevo token de autorización"} /></label>
+      </Space></Card>
       {!settings.secretsStorageAvailable && <Alert type="warning" title="Falta la clave de cifrado del servidor" description="Configurar GALENO_SETTINGS_ENCRYPTION_KEY para poder guardar las credenciales." />}
-      <details><summary>Configuración avanzada de conexión</summary><Typography.Paragraph style={{ marginTop: 12 }}>URL: {settings.baseUrl}. Se utiliza la autorización Basic de sandbox documentada por Galeno.</Typography.Paragraph><label>Reemplazar Authorization Basic (opcional)<Input.Password disabled={disabled || !settings.secretsStorageAvailable} autoComplete="new-password" value={basicAuthorization} onChange={event => setBasicAuthorization(event.target.value)} placeholder={settings.hasBasicAuthorization ? "Personalizada guardada; vacío la conserva" : "Solo si Galeno te proporciona otro valor"} /></label></details>
+      <details><summary>Configuración avanzada de conexión</summary><Typography.Paragraph style={{ marginTop: 12 }}>URL activa fija: {settings.baseUrl}</Typography.Paragraph></details>
       <Typography.Text type="secondary">Galeno debe habilitar la IP de salida del servidor. Las credenciales quedan cifradas y no se muestran al volver a abrir el panel.</Typography.Text>
-      <Button disabled={disabled || !settings.username.trim() || (!password && !settings.hasPassword)} loading={saving} onClick={() => void save()}>Guardar acceso y cargar opciones</Button>
+      <Button disabled={disabled || !(settings.environment === "production" ? settings.productionUsername : settings.sandboxUsername).trim() || (settings.environment === "production" ? (!productionPassword && !settings.hasProductionPassword) || (!productionBasicAuthorization && !settings.hasProductionBasicAuthorization) : (!sandboxPassword && !settings.hasSandboxPassword))} loading={saving} onClick={() => void save()}>Guardar acceso y cargar opciones</Button>
     </Space></Card>
     <Card title="Opciones para todas las cotizaciones"><Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Text type="secondary">La persona que cotiza no completa estos datos. Las opciones se consultan en Galeno según el productor y el plan.</Typography.Text>
-      {!settings.hasPassword && <Alert type="info" title="Primero guardá tu usuario y contraseña para cargar los selectores." />}
+      {!hasPassword && <Alert type="info" title="Primero guardá el usuario y la contraseña del ambiente activo para cargar los selectores." />}
       {catalogLoading && <Space><Spin size="small" /> Consultando opciones de Galeno...</Space>}
       {catalogError && <Alert type="error" title={catalogError} action={<Button disabled={disabled} onClick={() => setCatalogAttempt(value => value + 1)}>Reintentar</Button>} />}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 260px), 1fr))", gap: 20 }}>
@@ -121,7 +132,7 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
         {field("iibbCode", "Ingresos Brutos", catalogs?.iibb)}
       </div>
       <Typography.Text type="secondary">La bonificación se envía a Galeno en todas las cotizaciones cuando está habilitada. Facturación y medios de pago aparecerán solo si Galeno los habilita para el plan.</Typography.Text>
-      <Button disabled={disabled || !settings.hasPassword} onClick={() => { patch({ commercialPlanCode: "", producerCode: "", billingModeCode: "", paymentConditionCode: "", paymentMethodCode: "" }); setCatalogAttempt(value => value + 1); }}>Volver a elegir productor y plan</Button>
+      <Button disabled={disabled || !hasPassword} onClick={() => { patch({ commercialPlanCode: "", producerCode: "", billingModeCode: "", paymentConditionCode: "", paymentMethodCode: "" }); setCatalogAttempt(value => value + 1); }}>Volver a elegir productor y plan</Button>
     </Space></Card>
     <Card title="Analytics de Auto"><Space orientation="vertical" size="middle"><Space><Switch aria-label="Analytics de Auto" disabled={disabled} checked={settings.analyticsEnabled} onChange={analyticsEnabled => patch({ analyticsEnabled })} checkedChildren="ON" unCheckedChildren="OFF" /><strong>{settings.analyticsEnabled ? "Activado" : "Desactivado"}</strong></Space><Typography.Text type="secondary">OFF: Auto no carga Google Analytics ni Meta Pixel. ON: usa el Measurement ID general y el Pixel de Seguro a Tiempo, con eventos propios de Auto. Se aplica al guardar y cargar nuevamente la landing. Hogar conserva su configuración.</Typography.Text></Space></Card>
     <Card title="Emails y notificaciones"><Space orientation="vertical" size="large" style={{ width: "100%" }}>

@@ -13,7 +13,7 @@ import { sendAutoInterestNotificationEmail } from "../services/email.js";
 
 export const autoRouter = Router();
 autoRouter.use((_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
-// Lightweight burst protection; independent of Home. Upstream requests always use fixed sandbox paths.
+// Lightweight burst protection; independent of Home. Upstream requests use the fixed path for the selected Galeno environment.
 const buckets = new Map<string, { count: number; reset: number }>();
 autoRouter.use((request, response, next) => {
   const now = Date.now();
@@ -31,7 +31,7 @@ autoRouter.get("/config", async (_request, response) => {
   const analytics = settings.analyticsEnabled ? await AnalyticsSettings.findOne({ key: "default" }).select("measurementId").lean() : null;
   const measurementId = analytics?.measurementId || "G-WSQ0X7LXTC";
   const demo = autoDemoEnabled();
-  response.json({ environment: "test", mode: demo ? "demo" : "galeno", ready: demo || (quoteConfigured(settings) && canStoreAutoSecrets()), personType: settings.personTypeCode,
+  response.json({ environment: settings.environment, mode: demo ? "demo" : "galeno", ready: demo || (quoteConfigured(settings) && canStoreAutoSecrets()), personType: settings.personTypeCode,
     whatsappUrl: whatsappNumber ? `https://wa.me/${whatsappNumber}` : "", analytics: { enabled: settings.analyticsEnabled === true, ...(settings.analyticsEnabled ? { measurementId, metaPixelId: "1378259864357969" } : {}) },
   });
 });
