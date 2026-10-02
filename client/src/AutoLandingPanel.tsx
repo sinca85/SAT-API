@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Alert, App, Button, Card, Input, Select, Space, Spin, Switch, Typography } from "antd";
+import { Alert, App, Button, Card, Input, InputNumber, Select, Space, Spin, Switch, Typography } from "antd";
 
 type Settings = {
   sendQuoteEmail: boolean; sendCommercialEmailOnContract: boolean; contractRecipientEmail: string;
   environment: "test"; baseUrl: string; username: string; producerCode: string; commercialPlanCode: string;
+  commercialDiscountEnabled: boolean; commercialDiscountPercent: number;
   connectionRoute: "oracle" | "fixie";
   billingModeCode: string; paymentConditionCode: string; paymentMethodCode: string; personTypeCode: string; useTypeCode: string; ivaCode: string; iibbCode: string; analyticsEnabled: boolean;
   hasPassword: boolean; hasBasicAuthorization: boolean; secretsStorageAvailable: boolean;
@@ -64,8 +65,8 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
     if (!settings) return;
     setSaving(true);
     try {
-      const { sendQuoteEmail, sendCommercialEmailOnContract, contractRecipientEmail, environment, baseUrl, connectionRoute, username, producerCode, commercialPlanCode, billingModeCode, paymentConditionCode, paymentMethodCode, personTypeCode, useTypeCode, ivaCode, iibbCode, analyticsEnabled } = settings;
-      const response = await fetch("/admin/auto", { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sendQuoteEmail, sendCommercialEmailOnContract, contractRecipientEmail, environment, baseUrl, connectionRoute, username, producerCode, commercialPlanCode, billingModeCode, paymentConditionCode, paymentMethodCode, personTypeCode, useTypeCode, ivaCode, iibbCode, analyticsEnabled, ...(password ? { password } : {}), ...(basicAuthorization ? { basicAuthorization } : {}) }) });
+      const { sendQuoteEmail, sendCommercialEmailOnContract, contractRecipientEmail, environment, baseUrl, connectionRoute, username, producerCode, commercialPlanCode, commercialDiscountEnabled, commercialDiscountPercent, billingModeCode, paymentConditionCode, paymentMethodCode, personTypeCode, useTypeCode, ivaCode, iibbCode, analyticsEnabled } = settings;
+      const response = await fetch("/admin/auto", { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sendQuoteEmail, sendCommercialEmailOnContract, contractRecipientEmail, environment, baseUrl, connectionRoute, username, producerCode, commercialPlanCode, commercialDiscountEnabled, commercialDiscountPercent, billingModeCode, paymentConditionCode, paymentMethodCode, personTypeCode, useTypeCode, ivaCode, iibbCode, analyticsEnabled, ...(password ? { password } : {}), ...(basicAuthorization ? { basicAuthorization } : {}) }) });
       const data = await readResponse<Response>(response);
       setSettings(data.settings); setPassword(""); setBasicAuthorization(""); setCatalogAttempt(value => value + 1); message.success("Configuración de Auto guardada");
     } catch (err) { message.error(err instanceof Error ? err.message : "No se pudo guardar."); }
@@ -109,6 +110,8 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
       {catalogError && <Alert type="error" title={catalogError} action={<Button disabled={disabled} onClick={() => setCatalogAttempt(value => value + 1)}>Reintentar</Button>} />}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 260px), 1fr))", gap: 20 }}>
         <div><label htmlFor="auto-plan">Productor y plan comercial</label><Select id="auto-plan" aria-label="Productor y plan comercial" style={{ width: "100%", marginTop: 8 }} disabled={disabled || catalogLoading || !catalogs} showSearch optionFilterProp="label" value={settings.commercialPlanCode && settings.producerCode ? `${settings.producerCode}|${settings.commercialPlanCode}` : undefined} options={catalogs?.plans.map(item => ({ value: `${item.producerCode}|${item.value}`, label: `${item.producerCode} · ${item.label}` }))} placeholder="Seleccioná productor y plan" onChange={value => { const [producerCode, commercialPlanCode] = value.split("|"); patch({ producerCode, commercialPlanCode, billingModeCode: "", paymentConditionCode: "", paymentMethodCode: "" }); }} /></div>
+        <div style={{ display: "grid", gap: 8 }}><label>Bonificación comercial</label><Space><Switch aria-label="Habilitar bonificación comercial" disabled={disabled} checked={settings.commercialDiscountEnabled} onChange={commercialDiscountEnabled => patch({ commercialDiscountEnabled })} checkedChildren="ON" unCheckedChildren="OFF" /><strong>{settings.commercialDiscountEnabled ? "Habilitada" : "Deshabilitada"}</strong></Space></div>
+        <div style={{ display: "grid", gap: 8 }}><label htmlFor="auto-commercial-discount">Porcentaje de bonificación</label><InputNumber id="auto-commercial-discount" aria-label="Porcentaje de bonificación comercial" style={{ width: "100%" }} disabled={disabled || !settings.commercialDiscountEnabled} min={0} max={100} precision={2} addonAfter="%" value={settings.commercialDiscountPercent} onChange={value => patch({ commercialDiscountPercent: value ?? 0 })} /></div>
         {field("billingModeCode", "Modo de facturación / periodicidad", catalogs?.billingModes)}
         {field("paymentConditionCode", "Condición de pago / cuotas", catalogs?.paymentConditions)}
         {field("paymentMethodCode", "Medio de pago", catalogs?.paymentMethods)}
@@ -117,7 +120,7 @@ export function AutoLandingPanel({ canManage }: { canManage: boolean }) {
         {field("ivaCode", "Condición de IVA", catalogs?.iva)}
         {field("iibbCode", "Ingresos Brutos", catalogs?.iibb)}
       </div>
-      <Typography.Text type="secondary">Facturación (anual, semestral, trimestral u otras) y medios de pago (tarjeta, débito u otros) aparecerán solo si Galeno los habilita para el plan. No se solicitan datos de tarjeta ni CBU para cotizar.</Typography.Text>
+      <Typography.Text type="secondary">La bonificación se envía a Galeno en todas las cotizaciones cuando está habilitada. Facturación y medios de pago aparecerán solo si Galeno los habilita para el plan.</Typography.Text>
       <Button disabled={disabled || !settings.hasPassword} onClick={() => { patch({ commercialPlanCode: "", producerCode: "", billingModeCode: "", paymentConditionCode: "", paymentMethodCode: "" }); setCatalogAttempt(value => value + 1); }}>Volver a elegir productor y plan</Button>
     </Space></Card>
     <Card title="Analytics de Auto"><Space orientation="vertical" size="middle"><Space><Switch aria-label="Analytics de Auto" disabled={disabled} checked={settings.analyticsEnabled} onChange={analyticsEnabled => patch({ analyticsEnabled })} checkedChildren="ON" unCheckedChildren="OFF" /><strong>{settings.analyticsEnabled ? "Activado" : "Desactivado"}</strong></Space><Typography.Text type="secondary">OFF: Auto no carga Google Analytics ni Meta Pixel. ON: usa el Measurement ID general y el Pixel de Seguro a Tiempo, con eventos propios de Auto. Se aplica al guardar y cargar nuevamente la landing. Hogar conserva su configuración.</Typography.Text></Space></Card>

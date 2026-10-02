@@ -149,8 +149,12 @@ test("Quote uses server-side commercial/person defaults and numeric version iden
   assert.equal(payload.modeloCodigo, "463"); assert.equal(payload.tomadorTipoPersona, "2"); assert.equal(payload.tipoUso, "2");
   assert.equal(payload.tomadoCategoriaIVACodigo, "1"); assert.equal(payload.formaPagoCodigo, "3"); assert.equal(payload.vigenciaDesde, "23/10/2099");
   assert.equal(payload.accesorio1Codigo, "25"); assert.equal(payload.accesorio1Valor, 300000); assert.equal(payload.productorCodigo, "987");
+  assert.equal(payload.modificarBonificacion, "N"); assert.equal(payload.bonificacionPorc, 0);
   assert.equal(result.coverages.length, 1); assert.equal(result.coverages[0]?.premium, 100000); assert.equal(result.coverages[0]?.firstInstallment, 10000);
   assert.equal(result.billing.mode, "ANUAL"); assert.equal(result.billing.method, "TARJETA DE CREDITO");
+  const discounted = fixtureClient();
+  await quoteAuto(discounted.client, { ...settings, commercialDiscountEnabled: true, commercialDiscountPercent: 40 }, quoteInput.parse(input));
+  assert.equal(discounted.payload()!.modificarBonificacion, "S"); assert.equal(discounted.payload()!.bonificacionPorc, 40);
 });
 test("Rejects public overrides, invalid vehicle/locality/payment and impossible dates", async () => {
   assert.equal(quoteInput.safeParse({ ...input, personTypeCode: "1" }).success, false);

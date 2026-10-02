@@ -14,6 +14,8 @@ const autoSettingsSchema = new Schema({
   authorizationEncrypted: { type: String, select: false },
   producerCode: { type: String, default: "" },
   commercialPlanCode: { type: String, default: "" },
+  commercialDiscountEnabled: { type: Boolean, default: false },
+  commercialDiscountPercent: { type: Number, default: 0, min: 0, max: 100 },
   billingModeCode: { type: String, default: "" },
   paymentConditionCode: { type: String, default: "" },
   paymentMethodCode: { type: String, default: "" },

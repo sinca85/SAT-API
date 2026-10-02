@@ -20,8 +20,9 @@ const settingsInput = z.object({
   password: z.string().max(1000).optional(),
   basicAuthorization: z.string().trim().max(2000).optional(),
   producerCode: code, commercialPlanCode: code, billingModeCode: code, paymentConditionCode: code, paymentMethodCode: code,
+  commercialDiscountEnabled: z.boolean(), commercialDiscountPercent: z.number().finite().min(0).max(100),
   personTypeCode: code.optional(), useTypeCode: code.optional(), ivaCode: code.optional(), iibbCode: code.optional(), analyticsEnabled: z.boolean().optional(),
-}).strict();
+}).strict().refine(value => !value.commercialDiscountEnabled || value.commercialDiscountPercent > 0, { path: ["commercialDiscountPercent"], message: "Ingresá un porcentaje mayor a 0" });
 
 const defaults = autoDefaults;
 function serialize(entry: Record<string, unknown>) {

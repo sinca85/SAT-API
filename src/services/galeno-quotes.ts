@@ -83,7 +83,8 @@ export async function quoteAuto(client: GalenoClient, settings: AutoConfiguratio
     vigenciaDesde: `${day}/${month}/${year}`, poseeEquipoGNC: input.gnc ? "2" : "", poseeEquipoRastreo: "",
     ...(input.gnc ? { accesorio1Codigo: "25", accesorio1Valor: input.gncValue } : {}),
     ...(input.name ? { tomadorNombre: input.name } : {}),
-    modificarBonificacion: "N", modificarRecargoAdministrativo: "N", bonificacionPorc: 0, recargoAdministrativoPorc: 0,
+    modificarBonificacion: settings.commercialDiscountEnabled ? "S" : "N", modificarRecargoAdministrativo: "N",
+    bonificacionPorc: settings.commercialDiscountEnabled ? settings.commercialDiscountPercent : 0, recargoAdministrativoPorc: 0,
   };
   const raw = await client("/api/cotizadores/auto/cotizar", payload);
   return { ...normalizeQuote(raw), billing: {

@@ -46,7 +46,7 @@ test("Auto settings: permissions, validation, encrypted secrets and isolated per
   await new Promise<void>(resolve => server.once("listening", resolve));
   const address = server.address() as { port: number };
   const request = (role?: string, body?: object) => fetch(`http://127.0.0.1:${address.port}/admin/auto`, { method: body ? "PATCH" : "GET", headers: { "Content-Type": "application/json", ...(role ? { "x-test-role": role } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  const payload = { sendQuoteEmail: false, sendCommercialEmailOnContract: true, contractRecipientEmail: "auto@example.com", environment: "test", baseUrl: "https://www.gsbeneficios.com.ar/WS-Seguros-desa", connectionRoute: "oracle", username: "test-user", producerCode: "123", commercialPlanCode: "TEST", billingModeCode: "01", paymentConditionCode: "001", paymentMethodCode: "3" };
+  const payload = { sendQuoteEmail: false, sendCommercialEmailOnContract: true, contractRecipientEmail: "auto@example.com", environment: "test", baseUrl: "https://www.gsbeneficios.com.ar/WS-Seguros-desa", connectionRoute: "oracle", username: "test-user", producerCode: "123", commercialPlanCode: "TEST", commercialDiscountEnabled: true, commercialDiscountPercent: 40, billingModeCode: "01", paymentConditionCode: "001", paymentMethodCode: "3" };
   try {
     assert.equal((await request()).status, 401);
     assert.equal((await request("none")).status, 403);
@@ -62,6 +62,8 @@ test("Auto settings: permissions, validation, encrypted secrets and isolated per
     assert.equal((await request("manage", { ...payload, password: "test-password" })).status, 503);
     assert.equal(writes, 0);
     assert.equal((await request("manage", { ...payload, contractRecipientEmail: "not-an-email" })).status, 400);
+    assert.equal((await request("manage", { ...payload, commercialDiscountPercent: 101 })).status, 400);
+    assert.equal((await request("manage", { ...payload, commercialDiscountPercent: 0 })).status, 400);
     assert.equal((await request("manage", { ...payload, baseUrl: "http://example.com" })).status, 400);
     process.env.GALENO_SETTINGS_ENCRYPTION_KEY = key;
     const saved = await request("manage", { ...payload, password: "test-password", basicAuthorization: "test-basic" });
@@ -81,6 +83,8 @@ test("Auto settings: permissions, validation, encrypted secrets and isolated per
     assert.equal(stored!.passwordEncrypted, encrypted);
     const read = await (await request("view")).json();
     assert.equal(read.settings.sendQuoteEmail, false);
+    assert.equal(read.settings.commercialDiscountEnabled, true);
+    assert.equal(read.settings.commercialDiscountPercent, 40);
     assert.equal(read.commercialEmail, "commercial@example.com");
     assert.equal("passwordEncrypted" in read.settings, false);
     assert.equal((await request("manage", { ...payload, analyticsEnabled: true, personTypeCode: "2" })).status, 200);
