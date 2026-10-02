@@ -63,7 +63,7 @@ autoRouter.post("/quote", async (request, response) => {
   response.json({ quote: await quoteAuto(createGalenoClient(settings), settings, input) });
 });
 const interestInput = z.object({
-  submissionId: z.string().uuid(), requestId: z.string().max(120), vehicle: z.string().min(1).max(240),
+  submissionId: z.string().uuid(), requestId: z.string().max(120), branchCode: z.string().max(40), installationId: z.string().max(80), vehicle: z.string().min(1).max(240),
   coverageCode: z.string().min(1).max(80), coverageName: z.string().min(1).max(180), monthlyPrice: z.number().finite().nonnegative(), deductible: z.string().max(180),
   firstName: z.string().trim().min(1).max(80), lastName: z.string().trim().min(1).max(80), dni: z.string().regex(/^\d{6,8}$/),
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), address: z.string().trim().min(3).max(180), postalCode: z.string().trim().min(4).max(8),

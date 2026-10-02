@@ -38,6 +38,8 @@ export function demoQuote(input: AutoQuoteInput) {
   return {
     environment: "test" as const,
     requestId: `DEMO-${Date.now().toString(36).toUpperCase()}`,
+    branchCode: "4",
+    installationId: "0",
     vehicle: `${vehicle?.brandLabel ?? input.brand} ${vehicle?.modelLabel ?? input.model} ${version} · ${input.year}`,
     insuredAmount,
     hasRestrictions: false,

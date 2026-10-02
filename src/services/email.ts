@@ -135,13 +135,14 @@ export async function sendHomeContractNotificationEmail(lead: HomeContractLead, 
 export async function sendAutoInterestNotificationEmail(input: {
   fullName: string; email: string; phone: string; dni: string; dateOfBirth: string; address: string; postalCode: string;
   licensePlate: string; engineNumber: string; chassisNumber: string; vehicle: string; coverageName: string;
-  monthlyPrice: number; deductible?: string;
+  monthlyPrice: number; deductible?: string; requestId: string; branchCode: string; installationId: string; coverageCode: string;
 }, configuredRecipient?: string) {
   const to = configuredRecipient?.trim() || await commercialRecipient();
   if (!to) return { sent: false, reason: "commercial_email_not_configured" as const };
   const from = await sender();
   const rows = [
-    ["Vehículo", input.vehicle], ["Cobertura", input.coverageName], ["Cuota mensual", money(input.monthlyPrice)],
+    ["Solicitud Galeno", input.requestId || "No informada"], ["Rama", input.branchCode || "4"], ["Instalación", input.installationId || "No informada"],
+    ["Vehículo", input.vehicle], ["Cobertura", `${input.coverageName} (${input.coverageCode})`], ["Cuota mensual", money(input.monthlyPrice)],
     ["Franquicia", input.deductible || "No corresponde"], ["Nombre y apellido", input.fullName], ["DNI", input.dni],
     ["Fecha de nacimiento", input.dateOfBirth], ["Domicilio", `${input.address} · CP ${input.postalCode}`],
     ["Email", input.email], ["Celular", input.phone], ["Patente", input.licensePlate],

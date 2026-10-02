@@ -139,7 +139,7 @@ test("Known Galeno authentication failures return actionable diagnostics", async
   await assert.rejects(() => unknown("/api/cotizadores/auto/marcas?rama=4"), (error: Error) => error instanceof GalenoError && error.code === "galeno_user_not_registered" && error.message.includes("contraseña"));
 });
 
-const quote = { solicitud: 101, descripcionVehiculo: "CHEVROLET AGILE LT 2016", sumaAsegurada: 8500000, coberturas: [
+const quote = { rama: 4, solicitud: 101, instalacion: 0, descripcionVehiculo: "CHEVROLET AGILE LT 2016", sumaAsegurada: 8500000, coberturas: [
   { item: 1, cobertura: "C", descripcionCobertura: "TERCEROS COMPLETO", prima: 1, premio: 100000, importeCuota1: 10000, importeRestoCuotas: 9000, listaAdicionales: ["Robo e incendio", ""], franquicia: "" },
   { item: 2, cobertura: "D", descripcionCobertura: "TODO RIESGO", premio: 200000, importeCuota1: 20000, importeRestoCuotas: 19000, listaAdicionales: [], franquicia: "Según plan" },
 ], excepciones: [{ item: 2, estado: "No Permitido", detalle: "Restricted" }] };
@@ -171,6 +171,7 @@ test("Quote uses server-side commercial/person defaults and numeric version iden
   assert.equal(payload.accesorio1Codigo, "25"); assert.equal(payload.accesorio1Valor, 300000); assert.equal(payload.productorCodigo, "987");
   assert.equal(payload.modificarBonificacion, "N"); assert.equal(payload.bonificacionPorc, 0);
   assert.equal(result.coverages.length, 1); assert.equal(result.coverages[0]?.premium, 100000); assert.equal(result.coverages[0]?.firstInstallment, 10000);
+  assert.equal(result.requestId, "101"); assert.equal(result.branchCode, "4"); assert.equal(result.installationId, "0");
   assert.equal(result.billing.mode, "ANUAL"); assert.equal(result.billing.method, "TARJETA DE CREDITO");
   const discounted = fixtureClient();
   await quoteAuto(discounted.client, { ...settings, commercialDiscountEnabled: true, commercialDiscountPercent: 40 }, quoteInput.parse(input));

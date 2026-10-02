@@ -96,7 +96,7 @@ export async function quoteAuto(client: GalenoClient, settings: AutoConfiguratio
 const amount = z.number().finite().nonnegative();
 export function normalizeQuote(raw: unknown) {
   const schema = z.object({
-    solicitud: z.union([z.number(), z.string()]).optional(), descripcionVehiculo: z.string().optional(), sumaAsegurada: amount.optional(),
+    rama: z.union([z.number(), z.string()]).optional(), solicitud: z.union([z.number(), z.string()]).optional(), instalacion: z.union([z.number(), z.string()]).optional(), descripcionVehiculo: z.string().optional(), sumaAsegurada: amount.optional(),
     coberturas: z.array(z.object({ item: scalar, cobertura: z.string(), descripcionCobertura: z.string(), premio: amount, importeCuota1: amount, importeRestoCuotas: amount, listaAdicionales: z.array(z.string()).nullable().optional(), franquicia: z.string().nullable().optional() })).nullable().optional(),
     errores: z.array(z.object({ descripcion: z.string() })).nullable().optional(),
     excepciones: z.array(z.object({ item: scalar, estado: z.string(), detalle: z.string() })).nullable().optional(),
@@ -107,7 +107,7 @@ export function normalizeQuote(raw: unknown) {
   if (data.errores?.length) throw new GalenoError("quote_rejected", "Galeno no pudo cotizar estos datos. Revisá el vehículo, año y vigencia.", 422);
   const restricted = new Set((data.excepciones ?? []).map(item => item.item));
   const generalRestriction = restricted.has("0");
-  return { environment: "test", requestId: String(data.solicitud ?? ""), vehicle: data.descripcionVehiculo ?? "", insuredAmount: data.sumaAsegurada ?? null,
+  return { environment: "test", requestId: String(data.solicitud ?? ""), branchCode: String(data.rama ?? "4"), installationId: String(data.instalacion ?? ""), vehicle: data.descripcionVehiculo ?? "", insuredAmount: data.sumaAsegurada ?? null,
     coverages: (generalRestriction ? [] : data.coberturas ?? []).filter(item => !restricted.has(item.item)).map(item => ({ code: item.cobertura, name: item.descripcionCobertura, premium: item.premio, firstInstallment: item.importeCuota1, remainingInstallment: item.importeRestoCuotas, benefits: (item.listaAdicionales ?? []).filter(text => text.trim()), deductible: item.franquicia || "" })),
     hasRestrictions: restricted.size > 0,
   };

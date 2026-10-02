@@ -3,6 +3,8 @@ import { Schema, model } from "mongoose";
 const autoInterestSchema = new Schema({
   submissionId: { type: String, required: true, unique: true, index: true },
   requestId: { type: String, default: "", trim: true },
+  branchCode: { type: String, default: "", trim: true },
+  installationId: { type: String, default: "", trim: true },
   vehicle: { type: String, required: true, trim: true },
   coverageCode: { type: String, required: true, trim: true },
   coverageName: { type: String, required: true, trim: true },
