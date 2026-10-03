@@ -19,5 +19,5 @@ export async function readAutoSettings(): Promise<AutoConfiguration> {
 }
 export function quoteConfigured(settings: AutoConfiguration) {
   const expectedUrl = settings.environment === "production" ? GALENO_PRODUCTION_URL : GALENO_SANDBOX_URL;
-  return Boolean(settings.username && settings.passwordEncrypted && (settings.environment === "test" || settings.authorizationEncrypted) && settings.producerCode && settings.commercialPlanCode && settings.billingModeCode && settings.paymentConditionCode && settings.paymentMethodCode && settings.personTypeCode && settings.useTypeCode && settings.ivaCode && settings.iibbCode && settings.baseUrl === expectedUrl);
+  return Boolean(settings.username && settings.passwordEncrypted && settings.producerCode && settings.commercialPlanCode && settings.billingModeCode && settings.paymentConditionCode && settings.paymentMethodCode && settings.personTypeCode && settings.useTypeCode && settings.ivaCode && settings.iibbCode && settings.baseUrl === expectedUrl);
 }

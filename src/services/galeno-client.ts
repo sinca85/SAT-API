@@ -146,10 +146,9 @@ export function createGalenoClient(settings: AutoConfiguration, transport?: Gale
   let password: string, basic: string;
   try {
     password = decryptAutoSecret(settings.passwordEncrypted);
-    basic = settings.authorizationEncrypted ? decryptAutoSecret(settings.authorizationEncrypted) : settings.environment === "test" ? sandboxBasicAuthorization : "";
+    basic = settings.authorizationEncrypted ? decryptAutoSecret(settings.authorizationEncrypted) : sandboxBasicAuthorization;
   } catch { throw new GalenoError("credentials_unavailable", "No se pudieron recuperar las credenciales de Galeno. Revisá la clave de cifrado del servidor.", 503); }
   basic = basic.replace(/^Basic\s+/i, "");
-  if (!basic) throw new GalenoError("credentials_missing", "Falta configurar la autorización Basic del ambiente de producción.", 503);
   const key = hash(`${baseUrl}:${settings.username}`);
   const fingerprint = hash(`${settings.username}:${password}:${basic}`);
   async function jsonRequest(path: string, init: RequestInit) {
