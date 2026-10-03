@@ -152,8 +152,9 @@ export function createGalenoClient(settings: AutoConfiguration, transport?: Gale
   const key = hash(`${baseUrl}:${settings.username}`);
   const fingerprint = hash(`${settings.username}:${password}:${basic}`);
   async function jsonRequest(path: string, init: RequestInit) {
+    const timeoutMs = path === "/api/cotizadores/auto/cotizar" ? 50_000 : 15_000;
     try {
-      const response = await activeTransport(`${baseUrl}${path}`, { ...init, signal: AbortSignal.timeout(15000), redirect: "error" });
+      const response = await activeTransport(`${baseUrl}${path}`, { ...init, signal: AbortSignal.timeout(timeoutMs), redirect: "error" });
       const data: unknown = await response.json().catch(() => null);
       return { response, data };
     } catch (error) {
