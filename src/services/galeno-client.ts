@@ -100,10 +100,10 @@ export function createGalenoTransport(
     } catch (error) {
       const detail = error instanceof Error ? error.message.slice(0, 120) : "unknown_error";
       if (!fixie) {
-        console.error("Galeno Oracle relay failed", { errorName: error instanceof Error ? error.name : "UnknownError" });
+        console.error("Galeno Oracle relay failed", { errorName: error instanceof Error ? error.name : "UnknownError", detail });
         throw new GalenoError("oracle_unavailable", "Oracle no respondió. Podés seleccionar Fixie manualmente desde la configuración de Auto.", 503);
       }
-      console.error("Galeno Oracle relay failed; using Fixie", { errorName: error instanceof Error ? error.name : "UnknownError" });
+      console.error("Galeno Oracle relay failed; using Fixie", { errorName: error instanceof Error ? error.name : "UnknownError", detail });
       await reportRoute("fixie", detail);
       return await fixie(url, init);
     }
