@@ -160,3 +160,53 @@ export async function sendAutoInterestNotificationEmail(input: {
   if (!response.ok) throw new Error(`Resend respondió ${response.status}: ${(await response.text()).slice(0, 500)}`);
   return { sent: true, ...(await response.json() as { id?: string }) };
 }
+
+type AutoEmailCoverage = { code: string; name: string; firstInstallment: number; deductible?: string; benefits: string[] };
+type AutoEmailQuote = { requestId: string; vehicle: string; insuredAmount: number | null; coverages: AutoEmailCoverage[] };
+
+function autoWhatsAppUrl(baseUrl: string, input: { name: string; postalCode: string; locality: string; quote: AutoEmailQuote }, coverage: AutoEmailCoverage) {
+  if (!baseUrl) return "";
+  const url = new URL(baseUrl);
+  url.searchParams.set("text", [
+    `Hola, soy ${input.name}. Cotizé mi auto en Seguro a Tiempo y quiero continuar con esta opción:`,
+    `Vehículo: ${input.quote.vehicle}`,
+    `Ubicación: ${input.locality} (CP ${input.postalCode})`,
+    input.quote.insuredAmount ? `Valor asegurado: ${money(input.quote.insuredAmount)}` : "",
+    `Cobertura: ${coverage.name}`,
+    `Precio: ${money(coverage.firstInstallment)} por mes`,
+    coverage.deductible ? `Franquicia: ${coverage.deductible}` : "",
+    input.quote.requestId ? `Cotización Galeno: ${input.quote.requestId}` : "",
+  ].filter(Boolean).join("\n"));
+  return url.toString();
+}
+
+export async function sendAutoQuoteEmail(input: { name: string; email: string; postalCode: string; locality: string; quote: AutoEmailQuote }) {
+  if (!env.RESEND_API_KEY || !env.RESEND_EMAIL_DOMAIN) return { sent: false, reason: "not_configured" as const };
+  const from = await sender();
+  const whatsapp = await commercialWhatsAppUrl();
+  const cards = input.quote.coverages.map((coverage) => {
+    const link = autoWhatsAppUrl(whatsapp, input, coverage);
+    return `<section style="margin:16px 0;padding:20px;border:1px solid #dbe5f0;border-radius:12px"><h2 style="margin:0 0 8px;color:#07143f;font-size:19px">${escapeHtml(coverage.name)}</h2><strong style="display:block;color:#0675ed;font-size:27px">${money(coverage.firstInstallment)} <small style="font-size:13px;color:#52657a">/ mes</small></strong>${coverage.deductible ? `<p style="color:#52657a">Franquicia: ${escapeHtml(coverage.deductible)}</p>` : ""}${coverage.benefits.length ? `<ul style="padding-left:20px;color:#52657a;font-size:13px">${coverage.benefits.slice(0, 5).map((benefit) => `<li>${escapeHtml(benefit)}</li>`).join("")}</ul>` : ""}${link ? `<a href="${escapeHtml(link)}" style="display:block;margin-top:16px;padding:13px 18px;border-radius:8px;background:#ff4d00;color:#fff;text-align:center;text-decoration:none;font-weight:700">Continuar por WhatsApp</a>` : ""}</section>`;
+  }).join("");
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      from, to: [input.email], subject: `Tus opciones de seguro para ${input.quote.vehicle}`,
+      html: `<!doctype html><html lang="es"><body style="margin:0;background:#f5f8fc;font-family:Arial,sans-serif;color:#17324d"><main style="max-width:640px;margin:32px auto;background:#fff;border:1px solid #dbe5f0;border-radius:14px;overflow:hidden"><header style="padding:28px 34px;background:#073ea7;color:#fff"><strong style="font-size:24px">Seguro a Tiempo</strong><p style="margin:8px 0 0">Tu cotización de Galeno Auto</p></header><section style="padding:28px 34px"><h1 style="margin:0 0 10px">Hola, ${escapeHtml(input.name.split(/\s+/)[0] || input.name)}</h1><p>Estas son las opciones que seleccionamos para tu <strong>${escapeHtml(input.quote.vehicle)}</strong>.</p>${input.quote.insuredAmount ? `<p>Valor asegurado: <strong>${money(input.quote.insuredAmount)}</strong></p>` : ""}${cards}</section></main></body></html>`,
+      text: [`Hola ${input.name}. Estas son tus opciones para ${input.quote.vehicle}:`, ...input.quote.coverages.map((coverage) => `${coverage.name}: ${money(coverage.firstInstallment)} por mes${coverage.deductible ? ` · Franquicia: ${coverage.deductible}` : ""}${autoWhatsAppUrl(whatsapp, input, coverage) ? `\nContinuar por WhatsApp: ${autoWhatsAppUrl(whatsapp, input, coverage)}` : ""}`)].join("\n\n"),
+    }),
+  });
+  if (!response.ok) throw new Error(`Resend respondió ${response.status}: ${(await response.text()).slice(0, 500)}`);
+  return { sent: true, ...(await response.json() as { id?: string }) };
+}
+
+export async function sendAutoSelectionNotificationEmail(input: { name: string; email: string; postalCode: string; locality: string; quote: AutoEmailQuote; coverage: AutoEmailCoverage }, configuredRecipient?: string) {
+  const to = configuredRecipient?.trim() || await commercialRecipient();
+  if (!to) return { sent: false, reason: "commercial_email_not_configured" as const };
+  const from = await sender();
+  const rows = [["Cliente", input.name], ["Email", input.email], ["Vehículo", input.quote.vehicle], ["Localidad", `${input.locality} · CP ${input.postalCode}`], ["Cobertura elegida", `${input.coverage.name} (${input.coverage.code})`], ["Cuota mensual", money(input.coverage.firstInstallment)], ["Franquicia", input.coverage.deductible || "No corresponde"], ["Solicitud Galeno", input.quote.requestId || "No informada"]];
+  const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" }, body: JSON.stringify({ from, to: [to], subject: `Interés en cobertura · ${input.name} · Galeno Auto`, html: `<main style="font-family:Arial,sans-serif;max-width:620px;margin:32px auto;padding:30px;border:1px solid #dbe5f0;border-radius:14px;color:#17324d"><h1 style="color:#073ea7">Nueva cobertura elegida · Galeno Auto</h1><p>El cliente indicó que le interesa esta opción.</p><table style="width:100%;border-collapse:collapse">${rows.map(([key,value]) => `<tr><td style="padding:8px;border-bottom:1px solid #e6edf5"><strong>${escapeHtml(key!)}</strong></td><td style="padding:8px;text-align:right;border-bottom:1px solid #e6edf5">${escapeHtml(value!)}</td></tr>`).join("")}</table></main>`, text: rows.map(([key, value]) => `${key}: ${value}`).join("\n") }) });
+  if (!response.ok) throw new Error(`Resend respondió ${response.status}: ${(await response.text()).slice(0, 500)}`);
+  return { sent: true, ...(await response.json() as { id?: string }) };
+}

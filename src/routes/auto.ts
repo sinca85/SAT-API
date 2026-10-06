@@ -9,7 +9,8 @@ import { autoDemoEnabled, demoCatalog, demoQuote } from "../services/auto-demo.j
 import { Faq } from "../models/faq.js";
 import { SiteConfig } from "../models/site-config.js";
 import { AutoInterest } from "../models/auto-interest.js";
-import { sendAutoInterestNotificationEmail } from "../services/email.js";
+import { Lead } from "../models/lead.js";
+import { sendAutoInterestNotificationEmail, sendAutoQuoteEmail, sendAutoSelectionNotificationEmail } from "../services/email.js";
 
 export const autoRouter = Router();
 autoRouter.use((_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
@@ -60,7 +61,48 @@ autoRouter.post("/quote", async (request, response) => {
   const input = quoteInput.parse(request.body);
   if (autoDemoEnabled()) { response.json({ quote: demoQuote(input) }); return; }
   const settings = await readAutoSettings();
-  response.json({ quote: await quoteAuto(createGalenoClient(settings), settings, input) });
+  const quote = await quoteAuto(createGalenoClient(settings), settings, input);
+  let leadId = "";
+  let emailStatus: "sent" | "failed" | "not_configured" | "disabled" = "disabled";
+  if (input.email && input.submissionId) {
+    const normalized = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const matches = (item: typeof quote.coverages[number], value: string) => normalized(`${item.name} ${item.code}`).includes(value);
+    const todoOptions = quote.coverages.filter((item) => matches(item, "todo riesgo"));
+    const percent = (item: typeof quote.coverages[number]) => normalized(`${item.name} ${item.deductible}`).match(/(?:^|\D)(2|4)\s*%/)?.[1];
+    const todo = todoOptions.find((item) => percent(item) === "2") || todoOptions.find((item) => percent(item) === "4") || todoOptions.sort((a, b) => a.firstInstallment - b.firstInstallment)[0];
+    const complete = quote.coverages.find((item) => matches(item, "terceros completo black")) || quote.coverages.find((item) => matches(item, "terceros completo platinum")) || quote.coverages.filter((item) => /tercer|total/.test(normalized(item.name)) && item !== todo).sort((a, b) => b.firstInstallment - a.firstInstallment)[0];
+    const essential = quote.coverages.find((item) => matches(item, "responsabilidad civil clasica")) || quote.coverages.find((item) => matches(item, "responsabilidad civil"));
+    const displayed = [todo, complete, essential].filter((item, index, list): item is typeof quote.coverages[number] => Boolean(item) && list.indexOf(item) === index);
+    let lead = await Lead.findOne({ submissionId: input.submissionId });
+    if (!lead) {
+      const [firstName = input.name, ...lastName] = input.name.trim().split(/\s+/);
+      lead = await Lead.create({ submissionId: input.submissionId, source: "galeno-auto", product: "auto", insurer: "galeno", fullName: input.name, email: input.email, personal: { firstName, lastName: lastName.join(" "), postalCode: input.postalCode, email: input.email }, quote: { postalCode: input.postalCode, locality: input.locality, vehicle: quote.vehicle, insuredAmount: quote.insuredAmount, requestId: quote.requestId, branchCode: quote.branchCode, installationId: quote.installationId, environment: quote.environment, options: displayed, currency: "ARS" }, origin: { landing: "/auto", channel: "landing", ...input.origin }, highLevel: { syncStatus: "pending" } });
+      if (settings.sendQuoteEmail) {
+        try { const delivery = await sendAutoQuoteEmail({ name: input.name, email: input.email, postalCode: input.postalCode, locality: input.locality, quote: { requestId: quote.requestId, vehicle: quote.vehicle, insuredAmount: quote.insuredAmount, coverages: displayed } }); emailStatus = delivery.sent ? "sent" : "not_configured"; }
+        catch (error) { emailStatus = "failed"; console.error("Could not send auto quote email", error); }
+      }
+    }
+    leadId = lead.id;
+  }
+  response.json({ quote, leadId, emailStatus });
+});
+
+const selectionInput = z.object({ submissionId: z.string().uuid(), coverageCode: z.string().min(1).max(80) }).strict();
+autoRouter.patch("/leads/:leadId/selection", async (request, response) => {
+  const input = selectionInput.parse(request.body);
+  const lead = await Lead.findOne({ _id: request.params.leadId, submissionId: input.submissionId, product: "auto" });
+  if (!lead) { response.status(404).json({ error: "Lead not found" }); return; }
+  const quote = lead.quote as unknown as { postalCode: string; locality?: string; vehicle?: string; insuredAmount?: number | null; requestId?: string; options?: Array<{ code: string; name: string; firstInstallment: number; deductible?: string; benefits: string[] }>; selectedCoverage?: { code?: string } };
+  const coverage = quote.options?.find((item) => item.code === input.coverageCode);
+  if (!coverage) { response.status(400).json({ error: "La cobertura elegida no pertenece a esta cotización." }); return; }
+  const alreadySelected = quote.selectedCoverage?.code === coverage.code;
+  lead.set("quote.selectedCoverage", coverage); lead.set("quote.monthlyPrice", coverage.firstInstallment); lead.status = "interested"; await lead.save();
+  const settings = await readAutoSettings();
+  if (!alreadySelected && settings.sendCommercialEmailOnContract) {
+    try { await sendAutoSelectionNotificationEmail({ name: lead.fullName, email: lead.email, postalCode: quote.postalCode, locality: quote.locality || "", quote: { requestId: quote.requestId || "", vehicle: quote.vehicle || "", insuredAmount: quote.insuredAmount ?? null, coverages: quote.options || [] }, coverage }, settings.contractRecipientEmail); }
+    catch (error) { console.error("Could not send auto selection notification", error); }
+  }
+  response.json({ leadId: lead.id, selectedCoverage: coverage.code });
 });
 const interestInput = z.object({
   submissionId: z.string().uuid(), requestId: z.string().max(120), branchCode: z.string().max(40), installationId: z.string().max(80), vehicle: z.string().min(1).max(240),

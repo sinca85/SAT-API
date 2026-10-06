@@ -170,7 +170,8 @@ leadsRouter.patch("/home/:leadId/contract", async (request, response) => {
   const landingSettings = await getHomeLandingSettings();
   if (landingSettings.sendCommercialEmailOnContract) {
     try {
-      await sendHomeContractNotificationEmail(lead, landingSettings.contractRecipientEmail);
+      if (!lead.quote?.homeType || !lead.quote.quotedSquareMeters) throw new Error("La cotización de Hogar está incompleta.");
+      await sendHomeContractNotificationEmail({ fullName: lead.fullName, email: lead.email, phone: lead.phone, personal: lead.personal, quote: { homeType: lead.quote.homeType, quotedSquareMeters: lead.quote.quotedSquareMeters, monthlyPrice: lead.quote.monthlyPrice } }, landingSettings.contractRecipientEmail);
     } catch (error) {
       console.error("Could not send home contract notification email", error);
     }

@@ -179,6 +179,7 @@ type FaqImportEntry = Omit<FaqEntry, "_id" | "updatedAt">;
 interface Lead {
   _id: string;
   source: string;
+  product: "hogar" | "auto";
   fullName: string;
   email: string;
   phone: string;
@@ -188,7 +189,7 @@ interface Lead {
   nextFollowUpAt?: string;
   createdAt: string;
   personal?: LeadPersonal;
-  quote: { postalCode: string; homeType: string; floor: string; requestedSquareMeters?: number; quotedSquareMeters?: number; areaLabel: string; monthlyPrice: number; structureCoverage?: number; contentsCoverage?: number; appliancesCoverage?: number; glassCoverage?: number; theftCoverage?: number; waterDamageCoverage?: number; assistanceIncluded?: boolean; currency: string };
+  quote: { postalCode: string; homeType?: string; floor?: string; requestedSquareMeters?: number; quotedSquareMeters?: number; areaLabel?: string; monthlyPrice: number; structureCoverage?: number; contentsCoverage?: number; appliancesCoverage?: number; glassCoverage?: number; theftCoverage?: number; waterDamageCoverage?: number; assistanceIncluded?: boolean; currency: string; vehicle?: string; locality?: string; insuredAmount?: number; requestId?: string; options?: Array<{ code: string; name: string; firstInstallment: number; deductible?: string }>; selectedCoverage?: { code: string; name: string; firstInstallment: number; deductible?: string } };
   origin?: { landing?: string; channel?: string; pageUrl?: string; referrer?: string; utmSource?: string; utmMedium?: string; utmCampaign?: string; utmContent?: string; utmTerm?: string };
   notes?: Array<{ _id: string; text: string; authorName: string; createdAt: string }>;
   highLevel: { contactId?: string; opportunityId?: string; syncStatus: "pending" | "contact_synced" | "synced" | "failed"; lastError?: string };
@@ -721,18 +722,19 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
   const [editing, setEditing] = useState(false);
   const [savingPersonal, setSavingPersonal] = useState(false);
   const [expandedContactKeys, setExpandedContactKeys] = useState<Key[]>([]);
+  const [productFilter, setProductFilter] = useState<"hogar" | "auto">(() => localStorage.getItem("sat-leads-product") === "auto" ? "auto" : "hogar");
   const [editPersonal, setEditPersonal] = useState<Required<LeadPersonal>>({ firstName: "", lastName: "", dni: "", dateOfBirth: "", address: "", floor: "", apartment: "", postalCode: "", email: "", phone: "" });
   const pageSize = 25;
 
   const loadLeads = useCallback(async (nextPage: number) => {
     setLoading(true);
     try {
-      const data = await requestJson<{ contacts: LeadContactGroup[]; total: number }>(`/admin/leads?page=${nextPage}&limit=${pageSize}&sortBy=${sortBy}&sortOrder=${sortOrder}`);
+      const data = await requestJson<{ contacts: LeadContactGroup[]; total: number }>(`/admin/leads?page=${nextPage}&limit=${pageSize}&sortBy=${sortBy}&sortOrder=${sortOrder}&product=${productFilter}`);
       setLeads(data.contacts.map(({ contactKey, latestLead, leads: quotes }) => ({ ...latestLead, contactKey, quotes })));
       setTotal(data.total);
     } catch (error) { message.error(error instanceof Error ? error.message : "No se pudieron cargar los leads"); }
     finally { setLoading(false); }
-  }, [message, sortBy, sortOrder]);
+  }, [message, productFilter, sortBy, sortOrder]);
 
   useEffect(() => { void loadLeads(page); }, [loadLeads, page]);
 
@@ -749,10 +751,10 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
   const columns: TableColumnsType<LeadContactRow> = [
     { title: "", key: "pinned", width: 54, align: "center", render: (_, lead) => <Button type="text" disabled={!canManage} aria-label={lead.pinned ? "Quitar destacado" : "Destacar lead"} loading={updatingId === lead._id} icon={lead.pinned ? <PushpinFilled className="pin-active" /> : <PushpinOutlined />} onClick={() => void updateLead(lead._id, { pinned: !lead.pinned })} /> },
     { title: "Contacto", key: "fullName", sorter: true, sortOrder: sortBy === "fullName" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (_, lead) => <div><Typography.Text strong>{lead.fullName}</Typography.Text><Typography.Text type="secondary" className="block-text">{lead.email || "Sin email"} · {lead.phone || "Sin celular"}</Typography.Text></div> },
-    { title: "Cotización", key: "monthlyPrice", sorter: true, sortOrder: sortBy === "monthlyPrice" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (_, lead) => <div><Typography.Text>{lead.quote.homeType} · {lead.quote.areaLabel}</Typography.Text><Typography.Text type="secondary" className="block-text">{new Intl.NumberFormat("es-AR", { style: "currency", currency: lead.quote.currency, maximumFractionDigits: 0 }).format(lead.quote.monthlyPrice)}/mes</Typography.Text></div> },
+    { title: "Cotización", key: "monthlyPrice", sorter: true, sortOrder: sortBy === "monthlyPrice" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (_, lead) => <div><Typography.Text>{lead.product === "auto" ? lead.quote.vehicle : `${lead.quote.homeType} · ${lead.quote.areaLabel}`}</Typography.Text><Typography.Text type="secondary" className="block-text">{lead.quote.monthlyPrice ? `${new Intl.NumberFormat("es-AR", { style: "currency", currency: lead.quote.currency, maximumFractionDigits: 0 }).format(lead.quote.monthlyPrice)}/mes` : lead.product === "auto" ? `${lead.quote.options?.length || 0} opciones` : "—"}</Typography.Text></div> },
     { title: "Campaña UTM", key: "utmCampaign", sorter: true, sortOrder: sortBy === "utmCampaign" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (_, lead) => lead.origin?.utmCampaign ? <Tag color="blue">{lead.origin.utmCampaign}</Tag> : <Typography.Text type="secondary">Sin campaña UTM</Typography.Text> },
     { title: "Estado", dataIndex: "status", key: "status", width: 190, sorter: true, sortOrder: sortBy === "status" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (status: LeadStatus, lead) => <Select aria-label={`Estado de ${lead.fullName}`} value={status} disabled={!canManage || updatingId === lead._id} options={leadStatusOptions} onChange={(value: LeadStatus) => void updateLead(lead._id, { status: value })} /> },
-    { title: "HighLevel", key: "syncStatus", width: 130, sorter: true, sortOrder: sortBy === "syncStatus" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (_, lead) => <Tag color={lead.highLevel.syncStatus === "synced" || lead.highLevel.syncStatus === "contact_synced" ? "success" : lead.highLevel.syncStatus === "failed" ? "error" : "warning"}>{lead.highLevel.syncStatus === "synced" ? "Sincronizado" : lead.highLevel.syncStatus === "contact_synced" ? "Contacto creado" : lead.highLevel.syncStatus === "failed" ? "Con error" : "Pendiente"}</Tag> },
+    { title: "HighLevel", key: "syncStatus", width: 130, sorter: true, sortOrder: sortBy === "syncStatus" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (_, lead) => lead.product === "auto" ? <Tag>Sin integrar</Tag> : <Tag color={lead.highLevel.syncStatus === "synced" || lead.highLevel.syncStatus === "contact_synced" ? "success" : lead.highLevel.syncStatus === "failed" ? "error" : "warning"}>{lead.highLevel.syncStatus === "synced" ? "Sincronizado" : lead.highLevel.syncStatus === "contact_synced" ? "Contacto creado" : lead.highLevel.syncStatus === "failed" ? "Con error" : "Pendiente"}</Tag> },
     { title: "Ingreso", dataIndex: "createdAt", key: "createdAt", width: 170, sorter: true, sortOrder: sortBy === "createdAt" ? (sortOrder === "asc" ? "ascend" : "descend") : null, render: (date: string) => new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(date)) },
     { title: "Cotizaciones", key: "quotes", width: 120, align: "center", render: (_, lead) => <Tag color="blue">{lead.quotes.length}</Tag> },
     { title: "", key: "delete-group", width: 64, align: "center", render: (_, lead) => canDelete && lead.quotes.length > 1 ? <Button danger type="text" title="Eliminar todas las cotizaciones de este contacto" aria-label={`Eliminar las ${lead.quotes.length} cotizaciones de ${lead.fullName}`} icon={<DeleteOutlined />} onClick={(event) => { event.stopPropagation(); deleteContactGroup(lead); }} /> : null },
@@ -760,7 +762,7 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
 
   const quoteHistoryColumns: TableColumnsType<Lead> = [
     { title: "Contacto", key: "quote-date", width: 205, render: (_, quote) => <div><Typography.Text strong>↳ Cotización</Typography.Text><Typography.Text type="secondary" className="block-text">{new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(quote.createdAt))}</Typography.Text></div> },
-    { title: "Cotización", key: "quote", width: 195, render: (_, quote) => <div><Typography.Text>{quote.quote.homeType} · {quote.quote.areaLabel}</Typography.Text><Typography.Text type="secondary" className="block-text">{new Intl.NumberFormat("es-AR", { style: "currency", currency: quote.quote.currency, maximumFractionDigits: 0 }).format(quote.quote.monthlyPrice)}/mes</Typography.Text></div> },
+    { title: "Cotización", key: "quote", width: 195, render: (_, quote) => <div><Typography.Text>{quote.product === "auto" ? quote.quote.vehicle : `${quote.quote.homeType} · ${quote.quote.areaLabel}`}</Typography.Text><Typography.Text type="secondary" className="block-text">{quote.quote.monthlyPrice ? `${new Intl.NumberFormat("es-AR", { style: "currency", currency: quote.quote.currency, maximumFractionDigits: 0 }).format(quote.quote.monthlyPrice)}/mes` : `${quote.quote.options?.length || 0} opciones`}</Typography.Text></div> },
     { title: "Campaña UTM", key: "utmCampaign", width: 190, render: (_, quote) => quote.origin?.utmCampaign ? <Tag color="blue">{quote.origin.utmCampaign}</Tag> : <Typography.Text type="secondary">Sin campaña UTM</Typography.Text> },
     { title: "Estado", dataIndex: "status", key: "status", width: 175, render: (status: LeadStatus) => <Select value={status} disabled options={leadStatusOptions} style={{ width: "100%" }} /> },
     { title: "HighLevel", key: "sync", width: 130, render: (_, quote) => <Tag color={quote.highLevel.syncStatus === "synced" || quote.highLevel.syncStatus === "contact_synced" ? "success" : quote.highLevel.syncStatus === "failed" ? "error" : "warning"}>{quote.highLevel.syncStatus === "synced" ? "Sincronizado" : quote.highLevel.syncStatus === "failed" ? "Con error" : "Pendiente"}</Tag> },
@@ -852,17 +854,23 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
   const editInput = (key: keyof LeadPersonal, options?: { type?: string; placeholder?: string }) => <Input type={options?.type} placeholder={options?.placeholder} value={editPersonal[key]} onChange={(event) => changePersonal(key, event.target.value)} />;
 
   return <>
+    <Space style={{ marginBottom: 16 }}><Typography.Text strong>Producto</Typography.Text><Select value={productFilter} style={{ width: 180 }} options={[{ value: "hogar", label: "Hogar" }, { value: "auto", label: "Auto" }]} onChange={(value: "hogar" | "auto") => { localStorage.setItem("sat-leads-product", value); setProductFilter(value); setPage(1); setSelectedLead(null); }} /></Space>
     <Table rowKey="contactKey" columns={columns} dataSource={leads} loading={loading} scroll={{ x: 1200 }} expandable={{ expandedRowKeys: expandedContactKeys, onExpand: (expanded, lead) => setExpandedContactKeys((current) => expanded ? [...new Set([...current, lead.contactKey])] : current.filter((key) => key !== lead.contactKey)), rowExpandable: (lead) => lead.quotes.length > 1, expandedRowRender: (lead) => <div style={{ borderLeft: "3px solid #d7e6fb", margin: "-12px 0", padding: "8px 0 8px 18px", background: "#f8fbff" }}><Table<Lead> size="small" rowKey="_id" columns={quoteHistoryColumns} dataSource={lead.quotes} pagination={false} showHeader={false} scroll={{ x: 1180 }} onRow={(quote) => ({ onClick: (event) => { if ((event.target as HTMLElement).closest("button, .ant-select")) return; setSelectedLead(quote); }, className: "clickable-row" })} /></div> }} onChange={(_, __, sorter) => { const selected = Array.isArray(sorter) ? sorter[0] : sorter; if (!selected?.order || !selected.columnKey) return; setSortBy(selected.columnKey as LeadSortField); setSortOrder(selected.order === "ascend" ? "asc" : "desc"); setPage(1); }} onRow={(lead) => ({ onClick: (event) => { if ((event.target as HTMLElement).closest("button, .ant-select")) return; setSelectedLead(lead); }, className: "clickable-row" })} pagination={{ current: page, pageSize, total, showSizeChanger: false, onChange: setPage, showTotal: (count) => `${count} contactos` }} locale={{ emptyText: <Empty description="Todavía no hay contactos" /> }} />
-    <Drawer title="Detalle del lead" width={720} open={Boolean(selectedLead)} onClose={() => { setSelectedLead(null); setEditing(false); }} extra={<Space>{canManage && (editing ? <><Button onClick={cancelEditing} disabled={savingPersonal}>Cancelar</Button><Button type="primary" loading={savingPersonal} onClick={() => void savePersonal()}>Guardar</Button></> : <Button icon={<EditOutlined />} onClick={beginEditing}>Editar</Button>)}{canDelete && !editing && <Button danger icon={<DeleteOutlined />} onClick={deleteLead}>Eliminar lead</Button>}</Space>}>
+    <Drawer title="Detalle del lead" width={720} open={Boolean(selectedLead)} onClose={() => { setSelectedLead(null); setEditing(false); }} extra={<Space>{canManage && selectedLead?.product === "hogar" && (editing ? <><Button onClick={cancelEditing} disabled={savingPersonal}>Cancelar</Button><Button type="primary" loading={savingPersonal} onClick={() => void savePersonal()}>Guardar</Button></> : <Button icon={<EditOutlined />} onClick={beginEditing}>Editar</Button>)}{canDelete && !editing && <Button danger icon={<DeleteOutlined />} onClick={deleteLead}>Eliminar lead</Button>}</Space>}>
       {selectedLead && <>
         {selectedLead.highLevel.lastError && <div className="lead-sync-error"><Typography.Text strong type="danger">Error de sincronización con HighLevel</Typography.Text><Typography.Paragraph copyable>{selectedLead.highLevel.lastError}</Typography.Paragraph>{canManage && <Button danger loading={syncingLead} onClick={() => void retryHighLevelSync()}>Reintentar sincronización</Button>}</div>}
         <Typography.Title level={5}>Datos personales</Typography.Title>
-        <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
+        {selectedLead.product === "auto" ? <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
+          <Descriptions.Item label="Vehículo" span={2}>{value(selectedLead.quote.vehicle)}</Descriptions.Item><Descriptions.Item label="Localidad">{value(selectedLead.quote.locality)}</Descriptions.Item><Descriptions.Item label="Código postal">{value(selectedLead.quote.postalCode)}</Descriptions.Item>
+          <Descriptions.Item label="Valor asegurado">{money(selectedLead.quote.insuredAmount)}</Descriptions.Item><Descriptions.Item label="Solicitud Galeno">{value(selectedLead.quote.requestId)}</Descriptions.Item>
+          <Descriptions.Item label="Cobertura elegida" span={2}>{selectedLead.quote.selectedCoverage ? `${selectedLead.quote.selectedCoverage.name} · ${money(selectedLead.quote.selectedCoverage.firstInstallment)} / mes${selectedLead.quote.selectedCoverage.deductible ? ` · Franquicia: ${selectedLead.quote.selectedCoverage.deductible}` : ""}` : "Todavía no eligió una cobertura"}</Descriptions.Item>
+          <Descriptions.Item label="Opciones enviadas" span={2}>{selectedLead.quote.options?.map((option) => `${option.name} (${money(option.firstInstallment)})`).join(" · ") || "—"}</Descriptions.Item>
+        </Descriptions> : <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
           <Descriptions.Item label="Nombre">{editing ? editInput("firstName") : value(selectedLead.personal?.firstName || selectedLead.fullName)}</Descriptions.Item><Descriptions.Item label="Apellido">{editing ? editInput("lastName") : value(selectedLead.personal?.lastName)}</Descriptions.Item>
           <Descriptions.Item label="DNI">{editing ? editInput("dni") : value(selectedLead.personal?.dni)}</Descriptions.Item><Descriptions.Item label="Fecha de nacimiento">{editing ? editInput("dateOfBirth", { type: "date" }) : value(selectedLead.personal?.dateOfBirth)}</Descriptions.Item>
           <Descriptions.Item label="Domicilio" span={2}>{editing ? editInput("address", { placeholder: "Calle y número" }) : value(selectedLead.personal?.address)}</Descriptions.Item><Descriptions.Item label="Piso">{editing ? <Select value={editPersonal.floor || undefined} placeholder="Seleccioná el piso" style={{ width: "100%" }} onChange={(value) => changePersonal("floor", value)} options={["Planta baja", "Primer piso", "Segundo piso o superior", "No corresponde"].map((value) => ({ value, label: value }))} /> : value(selectedLead.personal?.floor || selectedLead.quote.floor)}</Descriptions.Item><Descriptions.Item label="Departamento">{editing ? editInput("apartment") : value(selectedLead.personal?.apartment)}</Descriptions.Item>
           <Descriptions.Item label="Código postal">{editing ? editInput("postalCode") : value(selectedLead.personal?.postalCode || selectedLead.quote.postalCode)}</Descriptions.Item><Descriptions.Item label="Email">{editing ? editInput("email", { type: "email" }) : value(selectedLead.personal?.email || selectedLead.email)}</Descriptions.Item><Descriptions.Item label="Celular" span={2}>{editing ? editInput("phone", { type: "tel", placeholder: "+54 9 11 1234 5678" }) : value(selectedLead.personal?.phone || selectedLead.phone)}</Descriptions.Item>
-        </Descriptions>
+        </Descriptions>}
         <Divider />
         <Typography.Title level={5}>Cotización</Typography.Title>
         <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
@@ -877,7 +885,7 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
         <Typography.Title level={5}>Origen y sincronización</Typography.Title>
         <Descriptions bordered size="small" column={1}>
           <Descriptions.Item label="Source">{value(selectedLead.source)}</Descriptions.Item><Descriptions.Item label="Landing">{value(selectedLead.origin?.landing)}</Descriptions.Item><Descriptions.Item label="Campaña UTM">{value(selectedLead.origin?.utmCampaign)}</Descriptions.Item>
-          <Descriptions.Item label="Contacto HighLevel">{value(selectedLead.highLevel.contactId)}</Descriptions.Item><Descriptions.Item label="Oportunidad HighLevel">{value(selectedLead.highLevel.opportunityId)}</Descriptions.Item><Descriptions.Item label="Estado de sincronización">{value(selectedLead.highLevel.syncStatus)}</Descriptions.Item>
+          {selectedLead.product === "hogar" && <><Descriptions.Item label="Contacto HighLevel">{value(selectedLead.highLevel.contactId)}</Descriptions.Item><Descriptions.Item label="Oportunidad HighLevel">{value(selectedLead.highLevel.opportunityId)}</Descriptions.Item><Descriptions.Item label="Estado de sincronización">{value(selectedLead.highLevel.syncStatus)}</Descriptions.Item></>}
         </Descriptions>
         <Divider />
         <Typography.Title level={5}>Notas</Typography.Title>

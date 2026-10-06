@@ -59,6 +59,8 @@ export const quoteInput = z.object({
   brand: z.string().min(1).max(40), model: z.string().min(1).max(120), year: z.string().regex(/^\d{4}$/), version: z.string().min(1).max(120),
   zeroKm: z.boolean(), postalCode: z.string().regex(/^\d{4}$/), locality: z.string().min(1).max(40),
   startDate: date, gnc: z.boolean(), gncValue: z.number().finite().min(0).max(999999999), name: z.string().trim().max(120).default(""),
+  email: z.string().trim().email().max(254).optional(), submissionId: z.string().uuid().optional(),
+  origin: z.object({ pageUrl: z.string().url().optional(), referrer: z.string().max(1000).optional(), utmSource: z.string().max(120).optional(), utmMedium: z.string().max(120).optional(), utmCampaign: z.string().max(160).optional(), utmContent: z.string().max(160).optional(), utmTerm: z.string().max(160).optional() }).optional(),
 }).strict().refine(value => !value.gnc || value.gncValue > 0, "Ingresá el valor del equipo de GNC.");
 export type AutoQuoteInput = z.infer<typeof quoteInput>;
 export async function quoteAuto(client: GalenoClient, settings: AutoConfiguration, input: AutoQuoteInput) {
