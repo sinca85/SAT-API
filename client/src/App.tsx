@@ -218,6 +218,11 @@ interface LeadContactGroup {
 }
 
 type LeadContactRow = Lead & { contactKey: string; quotes: Lead[] };
+interface QuoteEmailPreview {
+  recipient: string;
+  subject: string;
+  html: string;
+}
 
 const leadStatusOptions = [
   ["new", "Nuevo"], ["pending_contact", "Por contactar"], ["contacted", "Contactado"],
@@ -244,6 +249,10 @@ function viewFromPath(pathname: string): View {
   if (pathname === "/analytics" || pathname === "/analytics/") return "analytics-ga4";
   const entry = Object.entries(viewPaths).find(([, path]) => path === pathname);
   return (entry?.[0] as View | undefined) ?? "users";
+}
+
+function escapeHtmlForPreview(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -725,7 +734,12 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
   const [editing, setEditing] = useState(false);
   const [savingPersonal, setSavingPersonal] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [resendingQuoteId, setResendingQuoteId] = useState<string | null>(null);
+  const [loadingQuoteEmailId, setLoadingQuoteEmailId] = useState<string | null>(null);
+  const [sendingQuoteEmail, setSendingQuoteEmail] = useState(false);
+  const [quoteEmailLead, setQuoteEmailLead] = useState<Lead | null>(null);
+  const [quoteEmailPreview, setQuoteEmailPreview] = useState<QuoteEmailPreview | null>(null);
+  const [quoteEmailSubject, setQuoteEmailSubject] = useState("");
+  const [quoteEmailAdditionalMessage, setQuoteEmailAdditionalMessage] = useState("");
   const [expandedContactKeys, setExpandedContactKeys] = useState<Key[]>([]);
   const [productFilter, setProductFilter] = useState<"hogar" | "auto">(() => localStorage.getItem("sat-leads-product") === "auto" ? "auto" : "hogar");
   const [editPersonal, setEditPersonal] = useState<Required<LeadPersonal>>({ firstName: "", lastName: "", dni: "", dateOfBirth: "", address: "", floor: "", apartment: "", postalCode: "", email: "", phone: "" });
@@ -775,20 +789,46 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
     finally { setUpdatingId(null); }
   };
 
-  const resendQuoteEmail = async (lead: Lead) => {
-    setResendingQuoteId(lead._id);
+  const openQuoteEmailEditor = async (lead: Lead) => {
+    setLoadingQuoteEmailId(lead._id);
     try {
-      const data = await requestJson<{ lead: Lead }>(`/admin/leads/${lead._id}/resend-quote-email`, { method: "POST" });
-      setSelectedLead((current) => current?._id === lead._id ? data.lead : current);
+      const preview = await requestJson<QuoteEmailPreview>(`/admin/leads/${lead._id}/quote-email-preview`);
+      setQuoteEmailLead(lead);
+      setQuoteEmailPreview(preview);
+      setQuoteEmailSubject(preview.subject);
+      setQuoteEmailAdditionalMessage("");
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo preparar la vista previa del email"); }
+    finally { setLoadingQuoteEmailId(null); }
+  };
+
+  const closeQuoteEmailEditor = () => {
+    if (sendingQuoteEmail) return;
+    setQuoteEmailLead(null);
+    setQuoteEmailPreview(null);
+    setQuoteEmailSubject("");
+    setQuoteEmailAdditionalMessage("");
+  };
+
+  const submitQuoteEmail = async () => {
+    if (!quoteEmailLead) return;
+    setSendingQuoteEmail(true);
+    try {
+      const data = await requestJson<{ lead: Lead }>(`/admin/leads/${quoteEmailLead._id}/resend-quote-email`, {
+        method: "POST",
+        body: JSON.stringify({ subject: quoteEmailSubject, additionalMessage: quoteEmailAdditionalMessage }),
+      });
+      setSelectedLead((current) => current?._id === quoteEmailLead._id ? data.lead : current);
       await loadLeads(page);
-      message.success(`Oferta reenviada a ${data.lead.personal?.email || data.lead.email}`);
+      message.success(`Oferta reenviada a ${quoteEmailPreview?.recipient || data.lead.personal?.email || data.lead.email}`);
+      setQuoteEmailLead(null);
+      setQuoteEmailPreview(null);
     } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo reenviar la oferta"); }
-    finally { setResendingQuoteId(null); }
+    finally { setSendingQuoteEmail(false); }
   };
 
   const quoteEmailAction = (lead: Lead) => <Space direction="vertical" size={4}>
     <Typography.Text type="secondary">{lead.quoteEmailResentAt ? `Reenviado ${new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(lead.quoteEmailResentAt))} · ${lead.quoteEmailResendCount || 1} ${(lead.quoteEmailResendCount || 1) === 1 ? "reenvío" : "reenvíos"}` : "Sin reenvíos"}</Typography.Text>
-    <Button size="small" disabled={!canManage || !(lead.personal?.email || lead.email)} loading={resendingQuoteId === lead._id} onClick={(event) => { event.stopPropagation(); void resendQuoteEmail(lead); }}>Reenviar oferta</Button>
+    <Button size="small" disabled={!canManage || !(lead.personal?.email || lead.email)} loading={loadingQuoteEmailId === lead._id} onClick={(event) => { event.stopPropagation(); void openQuoteEmailEditor(lead); }}>Reenviar oferta</Button>
   </Space>;
 
   const columns: TableColumnsType<LeadContactRow> = [
@@ -898,6 +938,11 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
 
   const editInput = (key: keyof LeadPersonal, options?: { type?: string; placeholder?: string }) => <Input type={options?.type} placeholder={options?.placeholder} value={editPersonal[key]} onChange={(event) => changePersonal(key, event.target.value)} />;
 
+  const previewMessageHtml = quoteEmailAdditionalMessage.trim()
+    ? `<div style="margin:18px 0;padding:14px 16px;border-left:3px solid #0675ed;background:#f3f7ff;line-height:1.55;white-space:pre-line">${escapeHtmlForPreview(quoteEmailAdditionalMessage)}</div>`
+    : "";
+  const quoteEmailPreviewHtml = quoteEmailPreview?.html.replace("<!--SAT_CUSTOM_MESSAGE-->", previewMessageHtml);
+
   return <>
     <Flex justify="space-between" align="center" wrap="wrap" gap={12} style={{ marginBottom: 16 }}><Space><Typography.Text strong>Producto</Typography.Text><Select value={productFilter} style={{ width: 180 }} options={[{ value: "hogar", label: "Hogar" }, { value: "auto", label: "Auto" }]} onChange={(value: "hogar" | "auto") => { localStorage.setItem("sat-leads-product", value); setProductFilter(value); setPage(1); setSelectedLead(null); }} /></Space><Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void exportLeads()}>Exportar CSV</Button></Flex>
     <Table rowKey="contactKey" columns={columns} dataSource={leads} loading={loading} scroll={{ x: 1400 }} expandable={{ expandedRowKeys: expandedContactKeys, onExpand: (expanded, lead) => setExpandedContactKeys((current) => expanded ? [...new Set([...current, lead.contactKey])] : current.filter((key) => key !== lead.contactKey)), rowExpandable: (lead) => lead.quotes.length > 1, expandedRowRender: (lead) => <div style={{ borderLeft: "3px solid #d7e6fb", margin: "-12px 0", padding: "8px 0 8px 18px", background: "#f8fbff" }}><Table<Lead> size="small" rowKey="_id" columns={quoteHistoryColumns} dataSource={lead.quotes} pagination={false} showHeader={false} scroll={{ x: 1400 }} onRow={(quote) => ({ onClick: (event) => { if ((event.target as HTMLElement).closest("button, .ant-select")) return; setSelectedLead(quote); }, className: "clickable-row" })} /></div> }} onChange={(pagination, _, sorter, extra) => {
@@ -913,6 +958,23 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
         setPage(1);
       }
     }} onRow={(lead) => ({ onClick: (event) => { if ((event.target as HTMLElement).closest("button, .ant-select")) return; setSelectedLead(lead); }, className: "clickable-row" })} pagination={{ current: page, pageSize, total, showSizeChanger: false, showTotal: (count) => `${count} contactos` }} locale={{ emptyText: <Empty description="Todavía no hay contactos" /> }} />
+    <Drawer
+      title="Reenviar oferta de Hogar"
+      placement="right"
+      width={720}
+      open={Boolean(quoteEmailLead)}
+      onClose={closeQuoteEmailEditor}
+      closable={!sendingQuoteEmail}
+      maskClosable={!sendingQuoteEmail}
+      footer={<Flex justify="space-between" gap={8}><Button onClick={closeQuoteEmailEditor} disabled={sendingQuoteEmail}>Cancelar</Button><Button type="primary" loading={sendingQuoteEmail} disabled={!quoteEmailSubject.trim()} onClick={() => void submitQuoteEmail()}>Enviar oferta</Button></Flex>}
+    >
+      {quoteEmailLead && quoteEmailPreview && <Space direction="vertical" size={16} style={{ width: "100%" }}>
+        <div><Typography.Text type="secondary">Para</Typography.Text><div><Typography.Text strong>{quoteEmailPreview.recipient}</Typography.Text></div></div>
+        <div><Typography.Text strong>Asunto</Typography.Text><Input value={quoteEmailSubject} maxLength={180} onChange={(event) => setQuoteEmailSubject(event.target.value)} /></div>
+        <div><Typography.Text strong>Mensaje personalizado (opcional)</Typography.Text><Input.TextArea value={quoteEmailAdditionalMessage} maxLength={800} autoSize={{ minRows: 3, maxRows: 6 }} placeholder="Ej.: Recordá que podés consultar con un asesor si querés avanzar con esta cobertura." onChange={(event) => setQuoteEmailAdditionalMessage(event.target.value)} /><Typography.Text type="secondary">Se agrega debajo del saludo. El diseño, el precio y las coberturas de la cotización se mantienen.</Typography.Text></div>
+        <div><Typography.Text strong>Vista previa del email</Typography.Text><iframe title="Vista previa de la oferta" sandbox="" srcDoc={quoteEmailPreviewHtml} style={{ display: "block", width: "100%", height: 560, marginTop: 8, border: "1px solid #d9e1ec", borderRadius: 8, background: "#f5f8fc" }} /></div>
+      </Space>}
+    </Drawer>
     <Drawer title="Detalle del lead" width={720} open={Boolean(selectedLead)} onClose={() => { setSelectedLead(null); setEditing(false); }} extra={<Space>{canManage && selectedLead?.product === "hogar" && (editing ? <><Button onClick={cancelEditing} disabled={savingPersonal}>Cancelar</Button><Button type="primary" loading={savingPersonal} onClick={() => void savePersonal()}>Guardar</Button></> : <Button icon={<EditOutlined />} onClick={beginEditing}>Editar</Button>)}{canDelete && !editing && <Button danger icon={<DeleteOutlined />} onClick={deleteLead}>Eliminar lead</Button>}</Space>}>
       {selectedLead && <>
         {selectedLead.highLevel.lastError && <div className="lead-sync-error"><Typography.Text strong type="danger">Error de sincronización con HighLevel</Typography.Text><Typography.Paragraph copyable>{selectedLead.highLevel.lastError}</Typography.Paragraph>{canManage && <Button danger loading={syncingLead} onClick={() => void retryHighLevelSync()}>Reintentar sincronización</Button>}</div>}

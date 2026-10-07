@@ -43,9 +43,12 @@ async function commercialWhatsAppUrl() {
   return number ? `https://wa.me/${number}` : "";
 }
 
-export async function sendHomeQuoteEmail(input: { name: string; email: string; homeType: string; quote: HomeQuote }) {
-  if (!env.RESEND_API_KEY || !env.RESEND_EMAIL_DOMAIN) return { sent: false, reason: "not_configured" as const };
-  const from = await sender();
+export type HomeQuoteEmailInput = { name: string; email: string; homeType: string; quote: HomeQuote };
+export type HomeQuoteEmailOverrides = { subject?: string; additionalMessage?: string };
+
+const homeQuoteEmailMessageMarker = "<!--SAT_CUSTOM_MESSAGE-->";
+
+export async function buildHomeQuoteEmail(input: HomeQuoteEmailInput) {
   const quote = input.quote;
   const whatsappUrl = await commercialWhatsAppUrl();
   const contactHtml = whatsappUrl
@@ -55,15 +58,30 @@ export async function sendHomeQuoteEmail(input: { name: string; email: string; h
     ? `Respondé este mail o escribinos por WhatsApp hoy mismo: ${whatsappUrl}`
     : "Respondé este mail para que un asesor pueda ayudarte hoy mismo.";
   const recipientName = escapeHtml(input.name.trim().split(/\s+/)[0] || "");
+  const subject = `Tu cotización de Seguro de Hogar por: ${money(quote.monthlyPrice)} por mes`;
+  const html = `<!doctype html><html lang="es"><body style="margin:0;background:#f5f8fc;font-family:Arial,sans-serif;color:#17324d"><main style="max-width:620px;margin:32px auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #dbe5f0"><header style="padding:28px 34px;background:#073ea7;color:#fff"><strong style="font-size:24px">Seguro a Tiempo</strong><p style="margin:8px 0 0;font-size:14px">Tu cotización de Seguro Hogar Allianz</p></header><section style="padding:32px 34px"><h1 style="margin:0 0 14px;font-size:25px">¡Listo, ${recipientName}!</h1><p style="line-height:1.55">Preparamos una cobertura para tu ${escapeHtml(input.homeType.toLowerCase())} de <strong>${quote.quotedSquareMeters} m²</strong>.</p>${homeQuoteEmailMessageMarker}<div style="margin:24px 0;padding:22px;border-radius:10px;background:#073ea7;color:#fff;text-align:center"><div style="margin:8px 0;font-size:34px;font-weight:700">${money(quote.monthlyPrice)} <span style="font-size:14px">/mes</span></div><strong style="color:#d9ff4f;font-size:13px">12 CUOTAS FIJAS · Póliza anual</strong><p style="margin:12px 0 0;color:#fff;font-size:10px;line-height:1.35">*Precio de referencia, sujeto a ubicación exacta de tu hogar.</p></div><h2 style="font-size:18px">Coberturas incluidas</h2><table style="width:100%;border-collapse:collapse;font-size:14px"><tbody><tr><td style="padding:9px 0;border-bottom:1px solid #e6edf5">Incendio de estructura</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${money(quote.structureCoverage)}</td></tr><tr><td style="padding:9px 0;border-bottom:1px solid #e6edf5">Incendio del contenido</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${money(quote.contentsCoverage)}</td></tr><tr><td style="padding:9px 0;border-bottom:1px solid #e6edf5">Electrodomésticos</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${money(quote.appliancesCoverage)}</td></tr><tr><td style="padding:9px 0;border-bottom:1px solid #e6edf5">Cristales</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${money(quote.glassCoverage)}</td></tr><tr><td style="padding:9px 0;border-bottom:1px solid #e6edf5">Robo de contenido</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${money(quote.theftCoverage)}</td></tr><tr><td style="padding:9px 0">Daños por agua</td><td style="text-align:right">${money(quote.waterDamageCoverage)}</td></tr></tbody></table><p style="margin:26px 0 0;line-height:1.55;color:#52657a">Un asesor puede ayudarte a completar la contratación y resolver tus dudas.<br />${contactHtml}</p></section></main></body></html>`;
+  const text = `Hola ${input.name},\n\nTu cotización de Seguro de Hogar Allianz para ${input.homeType} de ${quote.quotedSquareMeters} m² es de ${money(quote.monthlyPrice)} por mes.\n*Precio de referencia, sujeto a ubicación exacta de tu hogar.\n\nIncluye incendio de estructura (${money(quote.structureCoverage)}), incendio del contenido (${money(quote.contentsCoverage)}), electrodomésticos (${money(quote.appliancesCoverage)}), cristales (${money(quote.glassCoverage)}), robo de contenido (${money(quote.theftCoverage)}) y daños por agua (${money(quote.waterDamageCoverage)}).\n\nUn asesor puede ayudarte a completar la contratación y resolver tus dudas. ${contactText}`;
+  return { subject, html, text };
+}
+
+export async function sendHomeQuoteEmail(input: HomeQuoteEmailInput, overrides: HomeQuoteEmailOverrides = {}) {
+  if (!env.RESEND_API_KEY || !env.RESEND_EMAIL_DOMAIN) return { sent: false, reason: "not_configured" as const };
+  const from = await sender();
+  const content = await buildHomeQuoteEmail(input);
+  const additionalMessage = overrides.additionalMessage?.trim() || "";
+  const messageHtml = additionalMessage
+    ? `<div style="margin:18px 0;padding:14px 16px;border-left:3px solid #0675ed;background:#f3f7ff;line-height:1.55;white-space:pre-line">${escapeHtml(additionalMessage)}</div>`
+    : "";
+  const messageText = additionalMessage ? `\n\n${additionalMessage}` : "";
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
     body: JSON.stringify({
       from,
       to: [input.email],
-      subject: `Tu cotización de Seguro de Hogar por: ${money(quote.monthlyPrice)} por mes`,
-      html: `<!doctype html><html lang="es"><body style="margin:0;background:#f5f8fc;font-family:Arial,sans-serif;color:#17324d"><main style="max-width:620px;margin:32px auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #dbe5f0"><header style="padding:28px 34px;background:#073ea7;color:#fff"><strong style="font-size:24px">Seguro a Tiempo</strong><p style="margin:8px 0 0;font-size:14px">Tu cotización de Seguro Hogar Allianz</p></header><section style="padding:32px 34px"><h1 style="margin:0 0 14px;font-size:25px">¡Listo, ${recipientName}!</h1><p style="line-height:1.55">Preparamos una cobertura para tu ${escapeHtml(input.homeType.toLowerCase())} de <strong>${quote.quotedSquareMeters} m²</strong>.</p><div style="margin:24px 0;padding:22px;border-radius:10px;background:#073ea7;color:#fff;text-align:center"><div style="margin:8px 0;font-size:34px;font-weight:700">${money(quote.monthlyPrice)} <span style="font-size:14px">/mes</span></div><strong style="color:#d9ff4f;font-size:13px">12 CUOTAS FIJAS · Póliza anual</strong><p style="margin:12px 0 0;color:#fff;font-size:10px;line-height:1.35">*Precio de referencia, sujeto a ubicación exacta de tu hogar.</p></div><h2 style="font-size:18px">Coberturas incluidas</h2><table style="width:100%;border-collapse:collapse;font-size:14px"><tbody><tr><td style="padding:9px 0;border-bottom:1px solid #e6edf5">Incendio de estructura</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${money(quote.structureCoverage)}</td></tr><tr><td style="padding:9px 0;border-bottom:1px solid #e6edf5">Incendio del contenido</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${money(quote.contentsCoverage)}</td></tr><tr><td style="padding:9px 0;border-bottom:1px solid #e6edf5">Electrodomésticos</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${money(quote.appliancesCoverage)}</td></tr><tr><td style="padding:9px 0;border-bottom:1px solid #e6edf5">Cristales</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${money(quote.glassCoverage)}</td></tr><tr><td style="padding:9px 0;border-bottom:1px solid #e6edf5">Robo de contenido</td><td style="text-align:right;border-bottom:1px solid #e6edf5">${money(quote.theftCoverage)}</td></tr><tr><td style="padding:9px 0">Daños por agua</td><td style="text-align:right">${money(quote.waterDamageCoverage)}</td></tr></tbody></table><p style="margin:26px 0 0;line-height:1.55;color:#52657a">Un asesor puede ayudarte a completar la contratación y resolver tus dudas.<br />${contactHtml}</p></section></main></body></html>`,
-      text: `Hola ${input.name},\n\nTu cotización de Seguro de Hogar Allianz para ${input.homeType} de ${quote.quotedSquareMeters} m² es de ${money(quote.monthlyPrice)} por mes.\n*Precio de referencia, sujeto a ubicación exacta de tu hogar.\n\nIncluye incendio de estructura (${money(quote.structureCoverage)}), incendio del contenido (${money(quote.contentsCoverage)}), electrodomésticos (${money(quote.appliancesCoverage)}), cristales (${money(quote.glassCoverage)}), robo de contenido (${money(quote.theftCoverage)}) y daños por agua (${money(quote.waterDamageCoverage)}).\n\nUn asesor puede ayudarte a completar la contratación y resolver tus dudas. ${contactText}`,
+      subject: overrides.subject?.trim() || content.subject,
+      html: content.html.replace(homeQuoteEmailMessageMarker, messageHtml),
+      text: `${content.text}${messageText}`,
     }),
   });
   if (!response.ok) throw new Error(`Resend respondió ${response.status}: ${(await response.text()).slice(0, 400)}`);

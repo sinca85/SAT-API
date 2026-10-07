@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
 import { Lead, leadStatuses } from "../models/lead.js";
 import { syncLeadToHighLevel } from "../integrations/highlevel/leads.js";
-import { sendHomeQuoteEmail } from "../services/email.js";
+import { buildHomeQuoteEmail, sendHomeQuoteEmail, type HomeQuoteEmailInput } from "../services/email.js";
 
 const listSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -41,6 +41,10 @@ const updateSchema = z.object({
 });
 
 const noteSchema = z.object({ text: z.string().trim().min(1).max(3000) });
+const resendQuoteEmailSchema = z.object({
+  subject: z.string().trim().min(1).max(180),
+  additionalMessage: z.string().trim().max(800).default(""),
+});
 
 type ContactGroupingLead = {
   _id: unknown;
@@ -71,6 +75,44 @@ function groupLeadsByContact<T extends ContactGroupingLead>(leads: T[]): T[][] {
   const groups = new Map<number, T[]>();
   leads.forEach((lead, index) => { const root = find(index); groups.set(root, [...(groups.get(root) || []), lead]); });
   return [...groups.values()];
+}
+
+type HomeQuoteLeadRecord = {
+  product: string;
+  fullName: string;
+  email?: string;
+  personal?: { email?: string } | null;
+  quote?: {
+    homeType?: string | null; requestedSquareMeters?: number | null; quotedSquareMeters?: number | null; areaLabel?: string | null;
+    monthlyPrice?: number | null; structureCoverage?: number | null; contentsCoverage?: number | null; appliancesCoverage?: number | null;
+    glassCoverage?: number | null; theftCoverage?: number | null; waterDamageCoverage?: number | null; assistanceIncluded?: boolean | null; currency?: string | null;
+  } | null;
+};
+
+function homeQuoteEmailInput(lead: HomeQuoteLeadRecord | null): HomeQuoteEmailInput | null {
+  if (!lead || lead.product !== "hogar") return null;
+  const quote = lead.quote;
+  const email = lead.personal?.email?.trim() || lead.email?.trim();
+  if (!email || !quote?.homeType || !quote.quotedSquareMeters || !quote.currency) return null;
+  return {
+    name: lead.fullName,
+    email,
+    homeType: quote.homeType,
+    quote: {
+      requestedSquareMeters: quote.requestedSquareMeters || quote.quotedSquareMeters,
+      quotedSquareMeters: quote.quotedSquareMeters,
+      areaLabel: quote.areaLabel || `${quote.quotedSquareMeters} m²`,
+      monthlyPrice: quote.monthlyPrice || 0,
+      structureCoverage: quote.structureCoverage || 0,
+      contentsCoverage: quote.contentsCoverage || 0,
+      appliancesCoverage: quote.appliancesCoverage || 0,
+      glassCoverage: quote.glassCoverage || 0,
+      theftCoverage: quote.theftCoverage || 0,
+      waterDamageCoverage: quote.waterDamageCoverage || 0,
+      assistanceIncluded: quote.assistanceIncluded !== false,
+      currency: "ARS",
+    },
+  };
 }
 
 export const adminLeadsRouter = Router();
@@ -153,37 +195,26 @@ adminLeadsRouter.get("/", async (request, response) => {
   response.json({ contacts: contacts.slice((page - 1) * limit, page * limit), total, page, limit });
 });
 
+adminLeadsRouter.get("/:leadId/quote-email-preview", requirePermission("leads.manage"), async (request, response) => {
+  const lead = await Lead.findById(request.params.leadId);
+  if (!lead) { response.status(404).json({ error: "No encontramos esa cotización." }); return; }
+  const input = homeQuoteEmailInput(lead);
+  if (!input) { response.status(422).json({ error: "La cotización no tiene un email o los datos necesarios para mostrar la oferta." }); return; }
+  response.json({ recipient: input.email, ...(await buildHomeQuoteEmail(input)) });
+});
+
 adminLeadsRouter.post("/:leadId/resend-quote-email", requirePermission("leads.manage"), async (request, response) => {
   const lead = await Lead.findById(request.params.leadId);
   if (!lead) { response.status(404).json({ error: "No encontramos esa cotización." }); return; }
-  if (lead.product !== "hogar") { response.status(400).json({ error: "El reenvío de oferta está disponible solo para cotizaciones de Hogar." }); return; }
-  const quote = lead.quote;
-  const recipient = lead.personal?.email?.trim() || lead.email?.trim();
-  if (!recipient) { response.status(400).json({ error: "Esta cotización no tiene un email de destino." }); return; }
-  if (!quote?.homeType || !quote.quotedSquareMeters || !quote.currency) {
+  const input = homeQuoteEmailInput(lead);
+  if (!input && lead.product !== "hogar") { response.status(400).json({ error: "El reenvío de oferta está disponible solo para cotizaciones de Hogar." }); return; }
+  if (!input) {
     response.status(422).json({ error: "La cotización no tiene los datos necesarios para reconstruir la oferta." }); return;
   }
+  const { subject, additionalMessage } = resendQuoteEmailSchema.parse(request.body);
 
   try {
-    const delivery = await sendHomeQuoteEmail({
-      name: lead.fullName,
-      email: recipient,
-      homeType: quote.homeType,
-      quote: {
-        requestedSquareMeters: quote.requestedSquareMeters || quote.quotedSquareMeters,
-        quotedSquareMeters: quote.quotedSquareMeters,
-        areaLabel: quote.areaLabel || `${quote.quotedSquareMeters} m²`,
-        monthlyPrice: quote.monthlyPrice,
-        structureCoverage: quote.structureCoverage || 0,
-        contentsCoverage: quote.contentsCoverage || 0,
-        appliancesCoverage: quote.appliancesCoverage || 0,
-        glassCoverage: quote.glassCoverage || 0,
-        theftCoverage: quote.theftCoverage || 0,
-        waterDamageCoverage: quote.waterDamageCoverage || 0,
-        assistanceIncluded: quote.assistanceIncluded !== false,
-        currency: "ARS",
-      },
-    });
+    const delivery = await sendHomeQuoteEmail(input, { subject, additionalMessage });
     if (!delivery.sent) { response.status(503).json({ error: "No se pudo enviar el email. Revisá la configuración de Resend." }); return; }
     lead.quoteEmailResentAt = new Date();
     lead.quoteEmailResendCount = (lead.quoteEmailResendCount || 0) + 1;
