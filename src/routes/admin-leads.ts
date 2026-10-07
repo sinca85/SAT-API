@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
 import { Lead, leadStatuses } from "../models/lead.js";
 import { syncLeadToHighLevel } from "../integrations/highlevel/leads.js";
+import { sendHomeQuoteEmail } from "../services/email.js";
 
 const listSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -103,7 +104,8 @@ const csvColumns: Array<{ header: string; path: string }> = [
   { header: "Referente", path: "origin.referrer" }, { header: "UTM source", path: "origin.utmSource" },
   { header: "UTM medium", path: "origin.utmMedium" }, { header: "Campaña UTM", path: "origin.utmCampaign" },
   { header: "Pieza UTM", path: "origin.utmContent" }, { header: "Término UTM", path: "origin.utmTerm" },
-  { header: "Estado", path: "status" }, { header: "Destacado", path: "pinned" },
+  { header: "Estado", path: "status" }, { header: "Último reenvío de oferta", path: "quoteEmailResentAt" },
+  { header: "Cantidad de reenvíos de oferta", path: "quoteEmailResendCount" }, { header: "Destacado", path: "pinned" },
   { header: "Prioridad", path: "priority" }, { header: "Próximo seguimiento", path: "nextFollowUpAt" },
   { header: "Motivo de pérdida", path: "lossReason" }, { header: "Notas", path: "notes" },
   { header: "ID contacto HighLevel", path: "highLevel.contactId" }, { header: "ID oportunidad HighLevel", path: "highLevel.opportunityId" },
@@ -149,6 +151,48 @@ adminLeadsRouter.get("/", async (request, response) => {
   }));
   const total = contacts.length;
   response.json({ contacts: contacts.slice((page - 1) * limit, page * limit), total, page, limit });
+});
+
+adminLeadsRouter.post("/:leadId/resend-quote-email", requirePermission("leads.manage"), async (request, response) => {
+  const lead = await Lead.findById(request.params.leadId);
+  if (!lead) { response.status(404).json({ error: "No encontramos esa cotización." }); return; }
+  if (lead.product !== "hogar") { response.status(400).json({ error: "El reenvío de oferta está disponible solo para cotizaciones de Hogar." }); return; }
+  const quote = lead.quote;
+  const recipient = lead.personal?.email?.trim() || lead.email?.trim();
+  if (!recipient) { response.status(400).json({ error: "Esta cotización no tiene un email de destino." }); return; }
+  if (!quote?.homeType || !quote.quotedSquareMeters || !quote.currency) {
+    response.status(422).json({ error: "La cotización no tiene los datos necesarios para reconstruir la oferta." }); return;
+  }
+
+  try {
+    const delivery = await sendHomeQuoteEmail({
+      name: lead.fullName,
+      email: recipient,
+      homeType: quote.homeType,
+      quote: {
+        requestedSquareMeters: quote.requestedSquareMeters || quote.quotedSquareMeters,
+        quotedSquareMeters: quote.quotedSquareMeters,
+        areaLabel: quote.areaLabel || `${quote.quotedSquareMeters} m²`,
+        monthlyPrice: quote.monthlyPrice,
+        structureCoverage: quote.structureCoverage || 0,
+        contentsCoverage: quote.contentsCoverage || 0,
+        appliancesCoverage: quote.appliancesCoverage || 0,
+        glassCoverage: quote.glassCoverage || 0,
+        theftCoverage: quote.theftCoverage || 0,
+        waterDamageCoverage: quote.waterDamageCoverage || 0,
+        assistanceIncluded: quote.assistanceIncluded !== false,
+        currency: "ARS",
+      },
+    });
+    if (!delivery.sent) { response.status(503).json({ error: "No se pudo enviar el email. Revisá la configuración de Resend." }); return; }
+    lead.quoteEmailResentAt = new Date();
+    lead.quoteEmailResendCount = (lead.quoteEmailResendCount || 0) + 1;
+    await lead.save();
+    response.json({ lead, emailId: delivery.id });
+  } catch (error) {
+    console.error("Could not resend home quote email", { leadId: lead.id, error });
+    response.status(502).json({ error: "No pudimos confirmar el resultado del reenvío. Revisá el email y Resend antes de volver a intentarlo para evitar duplicados." });
+  }
 });
 
 adminLeadsRouter.patch("/:leadId", async (request, response) => {

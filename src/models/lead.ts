@@ -83,6 +83,8 @@ const leadSchema = new Schema(
       utmTerm: String,
     },
     status: { type: String, enum: leadStatuses, default: "new", required: true, index: true },
+    quoteEmailResentAt: Date,
+    quoteEmailResendCount: { type: Number, default: 0, min: 0 },
     pinned: { type: Boolean, default: false, required: true, index: true },
     priority: { type: String, enum: ["low", "normal", "high", "urgent"], default: "normal" },
     nextFollowUpAt: Date,
