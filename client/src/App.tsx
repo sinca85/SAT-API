@@ -739,7 +739,6 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
   const [quoteEmailSubject, setQuoteEmailSubject] = useState("");
   const [quoteEmailHeadline, setQuoteEmailHeadline] = useState("");
   const [quoteEmailIntro, setQuoteEmailIntro] = useState("");
-  const quoteEmailFrame = useRef<HTMLIFrameElement>(null);
   const [expandedContactKeys, setExpandedContactKeys] = useState<Key[]>([]);
   const [productFilter, setProductFilter] = useState<"hogar" | "auto">(() => localStorage.getItem("sat-leads-product") === "auto" ? "auto" : "hogar");
   const [editPersonal, setEditPersonal] = useState<Required<LeadPersonal>>({ firstName: "", lastName: "", dni: "", dateOfBirth: "", address: "", floor: "", apartment: "", postalCode: "", email: "", phone: "" });
@@ -940,29 +939,10 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
 
   const editInput = (key: keyof LeadPersonal, options?: { type?: string; placeholder?: string }) => <Input type={options?.type} placeholder={options?.placeholder} value={editPersonal[key]} onChange={(event) => changePersonal(key, event.target.value)} />;
 
-  const quoteEmailPreviewHtml = quoteEmailPreview?.html.replace(
+  const quoteEmailPreviewBodyHtml = quoteEmailPreview?.html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1].replace(
     /<h1 style="margin:0 0 14px;font-size:25px">([\s\S]*?)<\/h1><p style="line-height:1.55">([\s\S]*?)<\/p>/,
     '<h1 id="sat-edit-headline" contenteditable="true" style="margin:0 0 14px;font-size:25px;outline:1px dashed transparent;cursor:text">$1</h1><p id="sat-edit-intro" contenteditable="true" style="line-height:1.55;outline:1px dashed transparent;cursor:text">$2</p>',
-  ).replace("</body>", `<script>
-    const sendEdits = () => parent.postMessage({ type: "sat-quote-email-edit", headline: document.getElementById("sat-edit-headline").innerText.trim(), intro: document.getElementById("sat-edit-intro").innerText.trim() }, "*");
-    for (const id of ["sat-edit-headline", "sat-edit-intro"]) {
-      const element = document.getElementById(id);
-      element.addEventListener("focus", () => element.style.outlineColor = "#1677ff");
-      element.addEventListener("blur", () => element.style.outlineColor = "transparent");
-      element.addEventListener("input", sendEdits);
-      element.addEventListener("keydown", (event) => { if (event.key === "Enter" && id === "sat-edit-headline") event.preventDefault(); });
-    }
-  </script></body>`);
-
-  useEffect(() => {
-    const syncEmailEdits = (event: MessageEvent) => {
-      if (event.source !== quoteEmailFrame.current?.contentWindow || event.data?.type !== "sat-quote-email-edit") return;
-      setQuoteEmailHeadline(String(event.data.headline || ""));
-      setQuoteEmailIntro(String(event.data.intro || ""));
-    };
-    window.addEventListener("message", syncEmailEdits);
-    return () => window.removeEventListener("message", syncEmailEdits);
-  }, []);
+  );
 
   return <>
     <Flex justify="space-between" align="center" wrap="wrap" gap={12} style={{ marginBottom: 16 }}><Space><Typography.Text strong>Producto</Typography.Text><Select value={productFilter} style={{ width: 180 }} options={[{ value: "hogar", label: "Hogar" }, { value: "auto", label: "Auto" }]} onChange={(value: "hogar" | "auto") => { localStorage.setItem("sat-leads-product", value); setProductFilter(value); setPage(1); setSelectedLead(null); }} /></Space><Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void exportLeads()}>Exportar CSV</Button></Flex>
@@ -992,7 +972,7 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
       {quoteEmailLead && quoteEmailPreview && <Space direction="vertical" size={16} style={{ width: "100%" }}>
         <div><Typography.Text type="secondary">Para</Typography.Text><div><Typography.Text strong>{quoteEmailPreview.recipient}</Typography.Text></div></div>
         <div><Typography.Text strong>Asunto</Typography.Text><Input value={quoteEmailSubject} maxLength={180} onChange={(event) => setQuoteEmailSubject(event.target.value)} /></div>
-        <div><Typography.Text strong>Vista previa del email</Typography.Text><Typography.Text type="secondary" style={{ display: "block" }}>Hacé clic sobre el título o el texto introductorio para editarlos directamente. Podés usar Enter para agregar líneas.</Typography.Text><iframe ref={quoteEmailFrame} title="Vista previa editable de la oferta" sandbox="allow-scripts" srcDoc={quoteEmailPreviewHtml} style={{ display: "block", width: "100%", height: 560, marginTop: 8, border: "1px solid #d9e1ec", borderRadius: 8, background: "#f5f8fc" }} /></div>
+        <div><Typography.Text strong>Vista previa del email</Typography.Text><Typography.Text type="secondary" style={{ display: "block" }}>Hacé clic sobre el título o el texto introductorio para editarlos directamente. Podés usar Enter para agregar líneas.</Typography.Text><div title="Vista previa editable de la oferta" onInput={(event) => { const root = event.currentTarget; setQuoteEmailHeadline(root.querySelector<HTMLElement>("#sat-edit-headline")?.innerText.trim() || ""); setQuoteEmailIntro(root.querySelector<HTMLElement>("#sat-edit-intro")?.innerText.trim() || ""); }} style={{ width: "100%", height: 560, overflow: "auto", marginTop: 8, border: "1px solid #d9e1ec", borderRadius: 8, background: "#f5f8fc" }} dangerouslySetInnerHTML={{ __html: quoteEmailPreviewBodyHtml || "" }} /></div>
       </Space>}
     </Drawer>
     <Drawer title="Detalle del lead" width={720} open={Boolean(selectedLead)} onClose={() => { setSelectedLead(null); setEditing(false); }} extra={<Space>{canManage && selectedLead?.product === "hogar" && (editing ? <><Button onClick={cancelEditing} disabled={savingPersonal}>Cancelar</Button><Button type="primary" loading={savingPersonal} onClick={() => void savePersonal()}>Guardar</Button></> : <Button icon={<EditOutlined />} onClick={beginEditing}>Editar</Button>)}{canDelete && !editing && <Button danger icon={<DeleteOutlined />} onClick={deleteLead}>Eliminar lead</Button>}</Space>}>
