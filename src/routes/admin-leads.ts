@@ -43,7 +43,8 @@ const updateSchema = z.object({
 const noteSchema = z.object({ text: z.string().trim().min(1).max(3000) });
 const resendQuoteEmailSchema = z.object({
   subject: z.string().trim().min(1).max(180),
-  additionalMessage: z.string().trim().max(800).default(""),
+  headline: z.string().trim().min(1).max(300),
+  intro: z.string().trim().min(1).max(1000),
 });
 
 type ContactGroupingLead = {
@@ -200,7 +201,7 @@ adminLeadsRouter.get("/:leadId/quote-email-preview", requirePermission("leads.ma
   if (!lead) { response.status(404).json({ error: "No encontramos esa cotización." }); return; }
   const input = homeQuoteEmailInput(lead);
   if (!input) { response.status(422).json({ error: "La cotización no tiene un email o los datos necesarios para mostrar la oferta." }); return; }
-  response.json({ recipient: input.email, ...(await buildHomeQuoteEmail(input)) });
+  response.json({ recipient: input.email, headline: `¡Listo, ${input.name.trim().split(/\s+/)[0] || ""}!`, intro: `Preparamos una cobertura para tu ${input.homeType.toLowerCase()} de ${input.quote.quotedSquareMeters} m².`, ...(await buildHomeQuoteEmail(input)) });
 });
 
 adminLeadsRouter.post("/:leadId/resend-quote-email", requirePermission("leads.manage"), async (request, response) => {
@@ -211,10 +212,10 @@ adminLeadsRouter.post("/:leadId/resend-quote-email", requirePermission("leads.ma
   if (!input) {
     response.status(422).json({ error: "La cotización no tiene los datos necesarios para reconstruir la oferta." }); return;
   }
-  const { subject, additionalMessage } = resendQuoteEmailSchema.parse(request.body);
+  const { subject, headline, intro } = resendQuoteEmailSchema.parse(request.body);
 
   try {
-    const delivery = await sendHomeQuoteEmail(input, { subject, additionalMessage });
+    const delivery = await sendHomeQuoteEmail(input, { subject, headline, intro });
     if (!delivery.sent) { response.status(503).json({ error: "No se pudo enviar el email. Revisá la configuración de Resend." }); return; }
     lead.quoteEmailResentAt = new Date();
     lead.quoteEmailResendCount = (lead.quoteEmailResendCount || 0) + 1;
