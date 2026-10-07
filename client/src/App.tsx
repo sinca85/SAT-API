@@ -737,8 +737,7 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
   const [quoteEmailLead, setQuoteEmailLead] = useState<Lead | null>(null);
   const [quoteEmailPreview, setQuoteEmailPreview] = useState<QuoteEmailPreview | null>(null);
   const [quoteEmailSubject, setQuoteEmailSubject] = useState("");
-  const [quoteEmailHeadline, setQuoteEmailHeadline] = useState("");
-  const [quoteEmailIntro, setQuoteEmailIntro] = useState("");
+  const quoteEmailContentRef = useRef<HTMLDivElement>(null);
   const [expandedContactKeys, setExpandedContactKeys] = useState<Key[]>([]);
   const [productFilter, setProductFilter] = useState<"hogar" | "auto">(() => localStorage.getItem("sat-leads-product") === "auto" ? "auto" : "hogar");
   const [editPersonal, setEditPersonal] = useState<Required<LeadPersonal>>({ firstName: "", lastName: "", dni: "", dateOfBirth: "", address: "", floor: "", apartment: "", postalCode: "", email: "", phone: "" });
@@ -795,8 +794,6 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
       setQuoteEmailLead(lead);
       setQuoteEmailPreview(preview);
       setQuoteEmailSubject(preview.subject);
-      setQuoteEmailHeadline(preview.headline);
-      setQuoteEmailIntro(preview.intro);
     } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo preparar la vista previa del email"); }
     finally { setLoadingQuoteEmailId(null); }
   };
@@ -806,17 +803,17 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
     setQuoteEmailLead(null);
     setQuoteEmailPreview(null);
     setQuoteEmailSubject("");
-    setQuoteEmailHeadline("");
-    setQuoteEmailIntro("");
   };
 
   const submitQuoteEmail = async () => {
     if (!quoteEmailLead) return;
+    const headline = quoteEmailContentRef.current?.querySelector<HTMLElement>("#sat-edit-headline")?.innerText.trim() || "";
+    const intro = quoteEmailContentRef.current?.querySelector<HTMLElement>("#sat-edit-intro")?.innerText.trim() || "";
     setSendingQuoteEmail(true);
     try {
       const data = await requestJson<{ lead: Lead }>(`/admin/leads/${quoteEmailLead._id}/resend-quote-email`, {
         method: "POST",
-        body: JSON.stringify({ subject: quoteEmailSubject, headline: quoteEmailHeadline, intro: quoteEmailIntro }),
+        body: JSON.stringify({ subject: quoteEmailSubject, headline, intro }),
       });
       setSelectedLead((current) => current?._id === quoteEmailLead._id ? data.lead : current);
       await loadLeads(page);
@@ -972,7 +969,7 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
       {quoteEmailLead && quoteEmailPreview && <Space direction="vertical" size={16} style={{ width: "100%" }}>
         <div><Typography.Text type="secondary">Para</Typography.Text><div><Typography.Text strong>{quoteEmailPreview.recipient}</Typography.Text></div></div>
         <div><Typography.Text strong>Asunto</Typography.Text><Input value={quoteEmailSubject} maxLength={180} onChange={(event) => setQuoteEmailSubject(event.target.value)} /></div>
-        <div><Typography.Text strong>Vista previa del email</Typography.Text><Typography.Text type="secondary" style={{ display: "block" }}>Hacé clic sobre el título o el texto introductorio para editarlos directamente. Podés usar Enter para agregar líneas.</Typography.Text><div title="Vista previa editable de la oferta" onInput={(event) => { const root = event.currentTarget; setQuoteEmailHeadline(root.querySelector<HTMLElement>("#sat-edit-headline")?.innerText.trim() || ""); setQuoteEmailIntro(root.querySelector<HTMLElement>("#sat-edit-intro")?.innerText.trim() || ""); }} style={{ width: "100%", height: 560, overflow: "auto", marginTop: 8, border: "1px solid #d9e1ec", borderRadius: 8, background: "#f5f8fc" }} dangerouslySetInnerHTML={{ __html: quoteEmailPreviewBodyHtml || "" }} /></div>
+        <div><Typography.Text strong>Vista previa del email</Typography.Text><Typography.Text type="secondary" style={{ display: "block" }}>Hacé clic sobre el título o el texto introductorio para editarlos directamente. Podés usar Enter para agregar líneas.</Typography.Text><div ref={quoteEmailContentRef} title="Vista previa editable de la oferta" style={{ width: "100%", height: 560, overflow: "auto", marginTop: 8, border: "1px solid #d9e1ec", borderRadius: 8, background: "#f5f8fc" }} dangerouslySetInnerHTML={{ __html: quoteEmailPreviewBodyHtml || "" }} /></div>
       </Space>}
     </Drawer>
     <Drawer title="Detalle del lead" width={720} open={Boolean(selectedLead)} onClose={() => { setSelectedLead(null); setEditing(false); }} extra={<Space>{canManage && selectedLead?.product === "hogar" && (editing ? <><Button onClick={cancelEditing} disabled={savingPersonal}>Cancelar</Button><Button type="primary" loading={savingPersonal} onClick={() => void savePersonal()}>Guardar</Button></> : <Button icon={<EditOutlined />} onClick={beginEditing}>Editar</Button>)}{canDelete && !editing && <Button danger icon={<DeleteOutlined />} onClick={deleteLead}>Eliminar lead</Button>}</Space>}>
