@@ -72,7 +72,9 @@ autoRouter.post("/quote", async (request, response) => {
     const todo = todoOptions.find((item) => percent(item) === "2") || todoOptions.find((item) => percent(item) === "4") || todoOptions.sort((a, b) => a.firstInstallment - b.firstInstallment)[0];
     const complete = quote.coverages.find((item) => matches(item, "terceros completo black")) || quote.coverages.find((item) => matches(item, "terceros completo platinum")) || quote.coverages.filter((item) => /tercer|total/.test(normalized(item.name)) && item !== todo).sort((a, b) => b.firstInstallment - a.firstInstallment)[0];
     const essential = quote.coverages.find((item) => matches(item, "responsabilidad civil clasica")) || quote.coverages.find((item) => matches(item, "responsabilidad civil"));
-    const displayed = [todo, complete, essential].filter((item, index, list): item is typeof quote.coverages[number] => Boolean(item) && list.indexOf(item) === index);
+    const displayed = [{ item: todo, level: "Máxima protección" }, { item: complete, level: "Cobertura completa" }, { item: essential, level: "Esencial" }]
+      .filter((entry, index, list): entry is { item: typeof quote.coverages[number]; level: string } => Boolean(entry.item) && list.findIndex((candidate) => candidate.item === entry.item) === index)
+      .map(({ item, level }) => ({ ...item, level }));
     let lead = await Lead.findOne({ submissionId: input.submissionId });
     if (!lead) {
       const [firstName = input.name, ...lastName] = input.name.trim().split(/\s+/);
@@ -92,7 +94,7 @@ autoRouter.patch("/leads/:leadId/selection", async (request, response) => {
   const input = selectionInput.parse(request.body);
   const lead = await Lead.findOne({ _id: request.params.leadId, submissionId: input.submissionId, product: "auto" });
   if (!lead) { response.status(404).json({ error: "Lead not found" }); return; }
-  const quote = lead.quote as unknown as { postalCode: string; locality?: string; vehicle?: string; insuredAmount?: number | null; requestId?: string; options?: Array<{ code: string; name: string; firstInstallment: number; deductible?: string; benefits: string[] }>; selectedCoverage?: { code?: string } };
+  const quote = lead.quote as unknown as { postalCode: string; locality?: string; vehicle?: string; insuredAmount?: number | null; requestId?: string; options?: Array<{ code: string; name: string; level?: string; firstInstallment: number; deductible?: string; benefits: string[] }>; selectedCoverage?: { code?: string } };
   const coverage = quote.options?.find((item) => item.code === input.coverageCode);
   if (!coverage) { response.status(400).json({ error: "La cobertura elegida no pertenece a esta cotización." }); return; }
   const alreadySelected = quote.selectedCoverage?.code === coverage.code;
