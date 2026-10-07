@@ -76,6 +76,64 @@ export const adminLeadsRouter = Router();
 adminLeadsRouter.use(requireAuthentication, requireActiveUser);
 adminLeadsRouter.use(requirePermission("leads.view"));
 
+const csvColumns: Array<{ header: string; path: string }> = [
+  { header: "ID", path: "_id" }, { header: "ID de envío", path: "submissionId" },
+  { header: "Producto", path: "product" }, { header: "Aseguradora", path: "insurer" },
+  { header: "Origen", path: "source" }, { header: "Nombre completo", path: "fullName" },
+  { header: "Email", path: "email" }, { header: "Teléfono", path: "phone" },
+  { header: "Nombre", path: "personal.firstName" }, { header: "Apellido", path: "personal.lastName" },
+  { header: "DNI", path: "personal.dni" }, { header: "Fecha de nacimiento", path: "personal.dateOfBirth" },
+  { header: "Domicilio", path: "personal.address" }, { header: "Piso", path: "personal.floor" },
+  { header: "Departamento", path: "personal.apartment" }, { header: "Código postal personal", path: "personal.postalCode" },
+  { header: "Email personal", path: "personal.email" }, { header: "Teléfono personal", path: "personal.phone" },
+  { header: "Código postal cotización", path: "quote.postalCode" }, { header: "Tipo de vivienda", path: "quote.homeType" },
+  { header: "Piso cotización", path: "quote.floor" }, { header: "Código de área", path: "quote.areaCode" },
+  { header: "Metros solicitados", path: "quote.requestedSquareMeters" }, { header: "Metros cotizados", path: "quote.quotedSquareMeters" },
+  { header: "Descripción de superficie", path: "quote.areaLabel" }, { header: "Precio mensual", path: "quote.monthlyPrice" },
+  { header: "Moneda", path: "quote.currency" }, { header: "Cobertura estructura", path: "quote.structureCoverage" },
+  { header: "Cobertura contenido", path: "quote.contentsCoverage" }, { header: "Cobertura electrodomésticos", path: "quote.appliancesCoverage" },
+  { header: "Cobertura cristales", path: "quote.glassCoverage" }, { header: "Cobertura robo", path: "quote.theftCoverage" },
+  { header: "Cobertura daños por agua", path: "quote.waterDamageCoverage" }, { header: "Asistencia incluida", path: "quote.assistanceIncluded" },
+  { header: "Vehículo", path: "quote.vehicle" }, { header: "Localidad", path: "quote.locality" },
+  { header: "Valor asegurado", path: "quote.insuredAmount" }, { header: "ID de solicitud", path: "quote.requestId" },
+  { header: "Código de sucursal", path: "quote.branchCode" }, { header: "ID de instalación", path: "quote.installationId" },
+  { header: "Ambiente", path: "quote.environment" }, { header: "Opciones de cotización", path: "quote.options" },
+  { header: "Cobertura seleccionada", path: "quote.selectedCoverage" }, { header: "Landing", path: "origin.landing" },
+  { header: "Canal", path: "origin.channel" }, { header: "URL de origen", path: "origin.pageUrl" },
+  { header: "Referente", path: "origin.referrer" }, { header: "UTM source", path: "origin.utmSource" },
+  { header: "UTM medium", path: "origin.utmMedium" }, { header: "Campaña UTM", path: "origin.utmCampaign" },
+  { header: "Pieza UTM", path: "origin.utmContent" }, { header: "Término UTM", path: "origin.utmTerm" },
+  { header: "Estado", path: "status" }, { header: "Destacado", path: "pinned" },
+  { header: "Prioridad", path: "priority" }, { header: "Próximo seguimiento", path: "nextFollowUpAt" },
+  { header: "Motivo de pérdida", path: "lossReason" }, { header: "Notas", path: "notes" },
+  { header: "ID contacto HighLevel", path: "highLevel.contactId" }, { header: "ID oportunidad HighLevel", path: "highLevel.opportunityId" },
+  { header: "Estado HighLevel", path: "highLevel.syncStatus" }, { header: "Última sincronización HighLevel", path: "highLevel.lastSyncedAt" },
+  { header: "Creado", path: "createdAt" }, { header: "Actualizado", path: "updatedAt" },
+];
+
+function csvValue(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  const text = value instanceof Date ? value.toISOString() : typeof value === "object" ? JSON.stringify(value) : String(value);
+  const safe = /^[\s\u0000-\u001f]*[=+@-]/.test(text) ? `'${text}` : text;
+  return `"${safe.replace(/"/g, '""')}"`;
+}
+
+adminLeadsRouter.get("/export.csv", async (request, response) => {
+  const product = z.enum(["hogar", "auto"]).parse(request.query.product);
+  const leads = await Lead.find({ product }).sort({ createdAt: -1 }).lean();
+  const rows = [
+    csvColumns.map(({ header }) => csvValue(header)).join(","),
+    ...leads.map((lead) => csvColumns.map(({ path }) => {
+      const value = path.split(".").reduce<unknown>((current, key) => current && typeof current === "object" ? (current as Record<string, unknown>)[key] : undefined, lead);
+      return csvValue(value);
+    }).join(",")),
+  ];
+  const date = new Date().toISOString().slice(0, 10);
+  response.setHeader("Content-Type", "text/csv; charset=utf-8");
+  response.setHeader("Content-Disposition", `attachment; filename="leads-${product}-${date}.csv"`);
+  response.send(`\uFEFF${rows.join("\r\n")}`);
+});
+
 adminLeadsRouter.get("/", async (request, response) => {
   const { page, limit, source, product, status, sortBy, sortOrder } = listSchema.parse(request.query);
   const filter = { ...(source ? { source } : {}), ...(product ? { product } : {}), ...(status ? { status } : {}) };

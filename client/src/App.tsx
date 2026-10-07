@@ -2,6 +2,7 @@ import { AutoLandingPanel } from "./AutoLandingPanel";
 import {
   CheckCircleOutlined,
   DeleteOutlined,
+  DownloadOutlined,
   DownOutlined,
   EditOutlined,
   GoogleOutlined,
@@ -721,6 +722,7 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
   const [savingNote, setSavingNote] = useState(false);
   const [editing, setEditing] = useState(false);
   const [savingPersonal, setSavingPersonal] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [expandedContactKeys, setExpandedContactKeys] = useState<Key[]>([]);
   const [productFilter, setProductFilter] = useState<"hogar" | "auto">(() => localStorage.getItem("sat-leads-product") === "auto" ? "auto" : "hogar");
   const [editPersonal, setEditPersonal] = useState<Required<LeadPersonal>>({ firstName: "", lastName: "", dni: "", dateOfBirth: "", address: "", floor: "", apartment: "", postalCode: "", email: "", phone: "" });
@@ -737,6 +739,28 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
   }, [message, productFilter, sortBy, sortOrder]);
 
   useEffect(() => { void loadLeads(page); }, [loadLeads, page]);
+
+  const exportLeads = async () => {
+    setExporting(true);
+    try {
+      const response = await fetch(`/admin/leads/export.csv?product=${productFilter}`, { credentials: "same-origin" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(data?.error ?? "No se pudo exportar el listado");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `leads-${productFilter}-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      message.success(`Se exportaron los leads de ${productFilter === "hogar" ? "Hogar" : "Auto"}`);
+    } catch (error) { message.error(error instanceof Error ? error.message : "No se pudo exportar el listado"); }
+    finally { setExporting(false); }
+  };
 
   const updateLead = async (leadId: string, input: Partial<Pick<Lead, "status" | "pinned" | "priority">>) => {
     setUpdatingId(leadId);
@@ -854,7 +878,7 @@ function LeadsTable({ canManage, canDelete }: { canManage: boolean; canDelete: b
   const editInput = (key: keyof LeadPersonal, options?: { type?: string; placeholder?: string }) => <Input type={options?.type} placeholder={options?.placeholder} value={editPersonal[key]} onChange={(event) => changePersonal(key, event.target.value)} />;
 
   return <>
-    <Space style={{ marginBottom: 16 }}><Typography.Text strong>Producto</Typography.Text><Select value={productFilter} style={{ width: 180 }} options={[{ value: "hogar", label: "Hogar" }, { value: "auto", label: "Auto" }]} onChange={(value: "hogar" | "auto") => { localStorage.setItem("sat-leads-product", value); setProductFilter(value); setPage(1); setSelectedLead(null); }} /></Space>
+    <Flex justify="space-between" align="center" wrap="wrap" gap={12} style={{ marginBottom: 16 }}><Space><Typography.Text strong>Producto</Typography.Text><Select value={productFilter} style={{ width: 180 }} options={[{ value: "hogar", label: "Hogar" }, { value: "auto", label: "Auto" }]} onChange={(value: "hogar" | "auto") => { localStorage.setItem("sat-leads-product", value); setProductFilter(value); setPage(1); setSelectedLead(null); }} /></Space><Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void exportLeads()}>Exportar CSV</Button></Flex>
     <Table rowKey="contactKey" columns={columns} dataSource={leads} loading={loading} scroll={{ x: 1200 }} expandable={{ expandedRowKeys: expandedContactKeys, onExpand: (expanded, lead) => setExpandedContactKeys((current) => expanded ? [...new Set([...current, lead.contactKey])] : current.filter((key) => key !== lead.contactKey)), rowExpandable: (lead) => lead.quotes.length > 1, expandedRowRender: (lead) => <div style={{ borderLeft: "3px solid #d7e6fb", margin: "-12px 0", padding: "8px 0 8px 18px", background: "#f8fbff" }}><Table<Lead> size="small" rowKey="_id" columns={quoteHistoryColumns} dataSource={lead.quotes} pagination={false} showHeader={false} scroll={{ x: 1180 }} onRow={(quote) => ({ onClick: (event) => { if ((event.target as HTMLElement).closest("button, .ant-select")) return; setSelectedLead(quote); }, className: "clickable-row" })} /></div> }} onChange={(_, __, sorter) => { const selected = Array.isArray(sorter) ? sorter[0] : sorter; if (!selected?.order || !selected.columnKey) return; setSortBy(selected.columnKey as LeadSortField); setSortOrder(selected.order === "ascend" ? "asc" : "desc"); setPage(1); }} onRow={(lead) => ({ onClick: (event) => { if ((event.target as HTMLElement).closest("button, .ant-select")) return; setSelectedLead(lead); }, className: "clickable-row" })} pagination={{ current: page, pageSize, total, showSizeChanger: false, onChange: setPage, showTotal: (count) => `${count} contactos` }} locale={{ emptyText: <Empty description="Todavía no hay contactos" /> }} />
     <Drawer title="Detalle del lead" width={720} open={Boolean(selectedLead)} onClose={() => { setSelectedLead(null); setEditing(false); }} extra={<Space>{canManage && selectedLead?.product === "hogar" && (editing ? <><Button onClick={cancelEditing} disabled={savingPersonal}>Cancelar</Button><Button type="primary" loading={savingPersonal} onClick={() => void savePersonal()}>Guardar</Button></> : <Button icon={<EditOutlined />} onClick={beginEditing}>Editar</Button>)}{canDelete && !editing && <Button danger icon={<DeleteOutlined />} onClick={deleteLead}>Eliminar lead</Button>}</Space>}>
       {selectedLead && <>
