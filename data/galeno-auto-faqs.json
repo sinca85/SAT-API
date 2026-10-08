@@ -1,0 +1,154 @@
+[
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Qué cubre el seguro de auto de Galeno?",
+    "answer": "Depende del plan que elijas. Galeno ofrece Responsabilidad Civil, coberturas de pérdidas totales, Terceros Completo y Todo Riesgo con franquicia. Según el plan, podés contar con protección por robo, incendio, daños por accidente y beneficios como cristales, granizo e inundación. Revisá las coberturas y los límites de la opción cotizada.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 4-9"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Qué diferencia hay entre Terceros Completo y Todo Riesgo?",
+    "answer": "Terceros Completo cubre responsabilidad civil, robo e incendio total y parcial. Las versiones Clásica, Platinum y Black también incluyen daños totales por accidente; la Básica C1 no los incluye. Todo Riesgo agrega daños parciales por accidente con una franquicia a tu cargo. Los beneficios adicionales varían según el plan.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 6-9"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Qué es la franquicia de Todo Riesgo?",
+    "answer": "Es el importe que queda a tu cargo en un daño parcial cubierto. El plan Todo Riesgo de Galeno utiliza una franquicia variable vinculada a la suma asegurada del vehículo. El porcentaje aplicable depende de la opción contratada y debe figurar en tu cotización y en la póliza.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 8-9"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿El seguro cubre el robo del auto y de sus partes?",
+    "answer": "Los planes B1 y B incluyen robo total del vehículo. Terceros Completo C1, C, C2 y C3, y Todo Riesgo D, incluyen robo total y parcial. Los planes de Responsabilidad Civil A y A2 no incluyen robo. Para ruedas y otros beneficios se aplican los límites específicos de cada plan.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 4-9"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Qué cobertura tengo si el auto se incendia?",
+    "answer": "Los planes B1 y B cubren incendio total. Terceros Completo C1, C, C2 y C3, y Todo Riesgo D, incluyen incendio total y parcial. La cobertura de garage E también incluye incendio total. El alcance depende del plan contratado.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 5-9"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Galeno cubre los daños por granizo?",
+    "answer": "Terceros Completo Platinum C2 contempla daños por granizo hasta $550.000. Terceros Completo Black C3 y Todo Riesgo D los contemplan hasta la suma asegurada del vehículo. Estos son los límites del manual de agosto de 2026; verificá el monto que figure en tu póliza.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 7-9"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿El seguro cubre daños por inundación?",
+    "answer": "Terceros Completo Platinum C2 contempla daños por inundación hasta $550.000. En Terceros Completo Black C3 y Todo Riesgo D, el límite es la suma asegurada del vehículo. La asistencia mecánica y el remolque tienen condiciones diferentes: el servicio no se presta en zonas inundadas.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 7-9, 15 y 20"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Están cubiertos el parabrisas, la luneta y los cristales?",
+    "answer": "Terceros Completo Básica C1 y Clásica C cubren rotura de cristales laterales hasta $180.000 anuales. Platinum C2 incluye laterales, luneta y parabrisas con un límite anual de $180.000. Black C3 y Todo Riesgo D incluyen laterales, parabrisas, luneta y techo sin tope ni límite según el manual. Confirmá las condiciones de tu póliza.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 6-9"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Cuántas ruedas me cubre el seguro si me las roban?",
+    "answer": "En Terceros Completo Básica C1 y Clásica C, el límite es 1 rueda por vigencia anual. En Platinum C2, son hasta 2 ruedas o 1 evento, lo que ocurra primero. En Black C3, hasta 4 ruedas o 2 eventos, lo que ocurra primero. En Todo Riesgo D, el manual indica hasta 4 ruedas por vigencia anual.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 6-9"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Hay reposición a nuevo para autos 0 km?",
+    "answer": "Terceros Completo Black C3 y Todo Riesgo D incluyen el beneficio de reposición de 0 km durante el primer año contado desde la fecha de la factura de compra; la reposición está a cargo de Galeno. También contemplan reposición a nuevo de neumáticos para vehículos de hasta 2 años desde esa fecha. La aplicación de estos beneficios depende del siniestro cubierto y de las condiciones de la póliza.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 8-9"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Hasta qué antigüedad puedo asegurar mi auto?",
+    "answer": "El manual admite hasta 30 años para Responsabilidad Civil A y A2; hasta 20 años para B1, B, Terceros Completo Básica C1 y Clásica C; hasta 15 años para Platinum C2; y hasta 10 años para Black C3 y Todo Riesgo D. La disponibilidad final depende de la aceptación del vehículo por Galeno.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 4-9"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿El seguro incluye grúa y asistencia mecánica?",
+    "answer": "Los planes que incluyen asistencia al vehículo cuentan con atención las 24 horas, los 365 días. La categoría Standard contempla 100 km de remolque de ida en Argentina y hasta 6 servicios anuales; Premium, desde Black, contempla 500 km de ida y hasta 12 servicios anuales. Los kilómetros excedentes, peajes y reparaciones quedan a tu cargo. Responsabilidad Civil Básica A2 no incluye asistencia entre sus beneficios.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 4, 11, 13-15 y 18-20"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Cómo pido una grúa o asistencia para el auto?",
+    "answer": "Si tu plan incluye asistencia, llamá al 0800-999-0084. Tené a mano la patente, marca y modelo, número de póliza o nombre del titular, ubicación y una descripción del problema. Desde países limítrofes, el manual indica el +54 351 485 8321 con cobro revertido. Pedí autorización antes de contratar un servicio por tu cuenta: los reintegros requieren autorización previa y factura válida.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 17-18 y 23-24"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Tengo cobertura si viajo a países limítrofes?",
+    "answer": "Los planes de circulación detallados en el manual incluyen extensión automática a países limítrofes, con límites específicos de responsabilidad civil. Si tu plan incluye asistencia, se presta en Argentina, Uruguay, Bolivia, Paraguay, Chile y Brasil al sur del paralelo 24. Para remolques en el exterior se aplica un equivalente en pesos de los kilómetros incluidos en Argentina, no la misma cantidad de kilómetros libres.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 4-9, 11, 13-14 y 18-19"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Tengo que declarar los accesorios que le agregué al auto?",
+    "answer": "Sí. Los accesorios que no sean originales de fábrica deben declararse y Galeno debe aprobar su inclusión. Tienen una prima adicional y requieren inspección previa, incluso si los agregás a una póliza vigente. La cobertura comienza después de aprobarse la inspección y tiene el mismo alcance que la del vehículo asegurado.",
+    "active": true,
+    "source": "Manual Producto GALENO SEGUROS 082026_Ultimo.pdf - págs. 10"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Qué pasa si tengo un siniestro?",
+    "answer": "Contactanos por WhatsApp o por mail, contanos lo ocurrido y nos encargamos de gestionarlo. No tenés que hablar directamente con la compañía: en Seguro a Tiempo te acompañamos durante todo el proceso.",
+    "active": true,
+    "source": "FAQS Y ASITENTE AUTO.docx"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Cómo doy de baja el seguro?",
+    "answer": "Contactanos por WhatsApp, indicanos desde qué fecha querés solicitar la baja y el motivo, y nosotros nos encargamos de gestionarla.",
+    "active": true,
+    "source": "FAQS Y ASITENTE AUTO.docx"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿A quién le pido la documentación de mi seguro?",
+    "answer": "Envianos un mensaje y te enviamos la documentación de tu seguro por mail o por WhatsApp.",
+    "active": true,
+    "source": "FAQS Y ASITENTE AUTO.docx"
+  },
+  {
+    "insurer": "galeno",
+    "product": "auto",
+    "question": "¿Qué es Seguro a Tiempo?",
+    "answer": "Seguro a Tiempo es un bróker de seguros que asesora, gestiona y acompaña a las personas aseguradas de principio a fin de su póliza. Está acreditado ante la Superintendencia de Seguros para cumplir ese rol.",
+    "active": true,
+    "source": "FAQS Y ASITENTE AUTO.docx"
+  }
+]
