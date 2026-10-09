@@ -33,7 +33,7 @@ async function sender() {
 }
 
 const emailSignatureText = "Seguro a Tiempo - Broker de seguros\nTucuman 141 - Piso 3H - Cap. Federal\nMail: comercial@seguroatiempo.com\nWeb: www.seguroatiempo.com\nIG: seguroatiempook";
-const emailSignatureHtml = `<footer style="max-width:620px;margin:0 auto;padding:18px 24px 24px;border-top:1px solid #e6edf5;color:#52657a;font-family:Arial,sans-serif;font-size:12px;line-height:1.7"><strong><em>Seguro a Tiempo - Broker de seguros</em></strong><br>Tucuman 141 - Piso 3H - Cap. Federal<br>Mail: <a href="mailto:comercial@seguroatiempo.com" style="color:#075aca">comercial@seguroatiempo.com</a><br>Web: <a href="https://www.seguroatiempo.com" style="color:#075aca">www.seguroatiempo.com</a><br>IG: <a href="https://www.instagram.com/seguroatiempook" style="color:#075aca">seguroatiempook</a></footer>`;
+const emailSignatureHtml = `<footer style="box-sizing:border-box;max-width:620px;margin:0 auto;padding:12px 34px 28px;color:#52657a;font-family:Arial,sans-serif;font-size:12px;line-height:1.7;text-align:left"><strong><em>Seguro a Tiempo - Broker de seguros</em></strong><br>Tucuman 141 - Piso 3H - Cap. Federal<br>Mail: <a href="mailto:comercial@seguroatiempo.com" style="color:#075aca">comercial@seguroatiempo.com</a><br>Web: <a href="https://www.seguroatiempo.com" style="color:#075aca">www.seguroatiempo.com</a><br>IG: <a href="https://www.instagram.com/seguroatiempook" style="color:#075aca">seguroatiempook</a></footer>`;
 
 async function sendThroughResend(email: { from: string; to: string[]; subject: string; html: string; text: string }) {
   const html = email.html.includes("</body>")
