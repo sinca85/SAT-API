@@ -37,6 +37,11 @@ function searchTerms(value: string) {
   const terms = value.toLocaleLowerCase("es").normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) ?? [];
   return new Set(terms.filter((term) => term.length > 3 && !generic.has(term)).map((term) => {
     if (/^(cubr|cobert)/.test(term)) return "cobertura";
+    if (/^robad|^robar|^robo/.test(term)) return "robo";
+    if (/^incendi/.test(term)) return "incendio";
+    if (/^inund/.test(term)) return "inundacion";
+    if (/^helad/.test(term)) return "heladera";
+    if (/^electrodom/.test(term)) return "electrodomestico";
     if (/^franquic/.test(term)) return "franquicia";
     if (/^viaj/.test(term)) return "viajar";
     return term;
@@ -54,7 +59,11 @@ function findRelevantFaq<T extends { question: string; answer: string }>(faqs: T
     const score = questionOverlap * 4 + answerOverlap - unmatchedSpecificTerms;
     return { faq, score };
   }).sort((a, b) => b.score - a.score);
-  return ranked[0]?.score ? ranked[0].faq : null;
+  const best = ranked[0];
+  // Do not answer with an FAQ that only shares a broad word such as
+  // "cobertura". A direct FAQ answer is safe only when the question has a
+  // meaningful overlap with that FAQ's question itself.
+  return best && best.score >= 4 && [...queryTerms].some((term) => searchTerms(best.faq.question).has(term)) ? best.faq : null;
 }
 
 export function consumeRateLimit(key: string) {
@@ -100,7 +109,7 @@ export async function answerQuestion(configuration: InstanceType<typeof AIConfig
   const context = matches.map(({ chunk }) => `[${chunk.documentName}${chunk.page ? `, página ${chunk.page}` : ""}]\n${chunk.text}`).join("\n\n");
   const defaultOutOfScopeMessage = `Puedo ayudarte únicamente con consultas sobre el seguro de ${configuration.product}.`;
   const outOfScopeMessage = !configuration.outOfScopeMessage || configuration.outOfScopeMessage === "Puedo ayudarte únicamente con consultas sobre este seguro." ? defaultOutOfScopeMessage : configuration.outOfScopeMessage;
-  const answer = await geminiProvider.answer({ systemInstruction: `${baseInstruction}\nPrimero verificá si la pregunta trata sobre el seguro, el producto, sus coberturas, asistencia, contratación, siniestros o condiciones. Si no tiene relación con ese tema (por ejemplo fecha, clima, noticias, entretenimiento, tecnología o conversaciones generales), respondé exactamente este mensaje y nada más: ${outOfScopeMessage}\nInstrucciones adicionales de configuración (subordinadas a las anteriores): ${configuration.systemInstructions || "ninguna"}`, question, context, maxOutputTokens: 1000 });
+  const answer = await geminiProvider.answer({ systemInstruction: `${baseInstruction}\nRespondé exactamente la situación consultada y no reemplaces el objeto, siniestro o cobertura mencionados por otro tema del contexto. Si la documentación no permite confirmar el caso concreto, decilo claramente y pedí que lo confirme un asesor; no completes con una cobertura parecida. Primero verificá si la pregunta trata sobre el seguro, el producto, sus coberturas, asistencia, contratación, siniestros o condiciones. Si no tiene relación con ese tema (por ejemplo fecha, clima, noticias, entretenimiento, tecnología o conversaciones generales), respondé exactamente este mensaje y nada más: ${outOfScopeMessage}\nInstrucciones adicionales de configuración (subordinadas a las anteriores): ${configuration.systemInstructions || "ninguna"}`, question, context, maxOutputTokens: 1000 });
   const sources = matches.map(({ chunk }) => ({ document: chunk.documentName, ...(chunk.page ? { page: chunk.page } : {}) }));
   cache.set(cacheKey, { expiresAt: Date.now() + 24 * 60 * 60 * 1000, answer, sources });
   return { answer, sources, cacheHit: false, providerCalled: true, fallback: !answer };
