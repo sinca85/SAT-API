@@ -5,12 +5,27 @@ import { del, get } from "@vercel/blob";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { requireActiveUser, requireAuthentication, requirePermission } from "../auth/middleware.js";
 import { AIConfiguration, AIQuery, AIDocument, AIChunk } from "../models/ai-knowledge.js";
+import { SiteConfig } from "../models/site-config.js";
 import { answerQuestion, consumeRateLimit, createDocument } from "../services/ai-knowledge.js";
 import { geminiProvider } from "../integrations/ai/gemini.js";
 import { env } from "../config/env.js";
 
 export const aiRouter = Router();
 const questionSchema = z.object({ question: z.string().trim().min(1).max(env.AI_CHAT_MAX_QUESTION_LENGTH) });
+
+async function advisorWhatsAppUrl(question: string) {
+  try {
+    const entry = await SiteConfig.findOne({ type: "whatsapp", active: true }).select("value").lean();
+    const number = entry?.value?.replace(/\D/g, "") || "";
+    if (!number) return "";
+    const url = new URL(`https://wa.me/${number}`);
+    url.searchParams.set("text", `Hola, consulté al asistente sobre: ${question}. ¿Me puede ayudar un asesor?`);
+    return url.toString();
+  } catch (error) {
+    console.error("No se pudo cargar el WhatsApp comercial para el asistente", error);
+    return "";
+  }
+}
 
 aiRouter.get("/chat/:slug/config", async (request, response) => {
   const configuration = await AIConfiguration.findOne({ slug: request.params.slug.toLowerCase(), active: true }).select("slug title placeholder welcomeMessage active").lean();
@@ -28,10 +43,11 @@ aiRouter.post("/chat/:slug", async (request, response) => {
   try {
     const result = await answerQuestion(configuration, input.question);
     await AIQuery.create({ configurationId: configuration._id, question: input.question, answer: result.answer, sources: result.sources, cacheHit: result.cacheHit, providerCalled: result.providerCalled, durationMs: Date.now() - startedAt, status: result.fallback ? "fallback" : "success", knowledgeVersion: configuration.knowledgeVersion });
-    response.json({ success: true, answer: result.answer, sources: result.sources });
+    const needsAdvisor = result.needsAdvisor === true;
+    response.json({ success: true, answer: result.answer, sources: result.sources, needsAdvisor, ...(needsAdvisor ? { whatsappUrl: await advisorWhatsAppUrl(input.question) } : {}) });
   } catch (error) {
     await AIQuery.create({ configurationId: configuration._id, question: input.question, answer: configuration.fallbackMessage, sources: [], providerCalled: true, durationMs: Date.now() - startedAt, status: "error", error: error instanceof Error ? error.message : "AI provider error", knowledgeVersion: configuration.knowledgeVersion });
-    response.json({ success: true, answer: configuration.fallbackMessage, sources: [] });
+    response.json({ success: true, answer: configuration.fallbackMessage, sources: [], needsAdvisor: true, whatsappUrl: await advisorWhatsAppUrl(input.question) });
   }
 });
 
